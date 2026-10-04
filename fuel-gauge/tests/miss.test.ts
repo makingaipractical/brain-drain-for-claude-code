@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { TurnStepResult } from 'claude-code'
 import * as core from '../hooks/core.ts'
-import { start, world } from './world.ts'
+import { start, world, settle } from './world.ts'
 
 const cold = { cache_read_input_tokens: 9000, cache_creation_input_tokens: 150000 }
 const warm = { cache_read_input_tokens: 149000, cache_creation_input_tokens: 5000 }
@@ -49,6 +49,7 @@ test('turn.step records a miss after an idle gap, never on the first request', a
   await step(warm) // warm
   await w.clock.advance(400_000)
   await step(cold) // 400 s idle on a 5-minute TTL: miss
+  await settle()
   const keys = [...w.store.keys()].filter(k => k.startsWith('miss:'))
   expect(keys).toHaveLength(1)
   const miss = w.store.get(keys[0]!) as { tokens: number; gapS: number; ttl: number }

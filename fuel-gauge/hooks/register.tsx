@@ -512,7 +512,8 @@ export const register: Register = on => {
           }
           await $.store.set(key, miss)
         }
-        await writeSessionFile($)
+        // Queued, not awaited: the next request must not wait on a file move.
+        void writeSessionFile($)
       }
     } catch (err) {
       $.ui.log(`fuel-gauge: turn.step: ${String(err)}`, { to: 'debug' })

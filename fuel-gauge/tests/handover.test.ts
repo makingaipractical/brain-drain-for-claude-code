@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as core from '../hooks/core.ts'
-import { BRIDGE_SETTINGS, HOME, SID, sessionFile, start, world } from './world.ts'
+import { BRIDGE_SETTINGS, HOME, SID, sessionFile, settle, sleep, start, world } from './world.ts'
 
 test('bridge detection', () => {
   expect(core.bridgeLive(BRIDGE_SETTINGS)).toBe(true)
@@ -68,6 +68,7 @@ test('after /clear the new session file starts clean and the old one is left as 
   on('classic.SessionStart', () => ({}))
   await start($)
   for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
+  await settle()
   const dir = `${HOME}/.claude/fuel-gauge-mod`
   const before = sessionFile(w, dir)!
   expect(before.used_percentage).toBe(31)
@@ -105,4 +106,24 @@ test('the shadow directory is pruned like the extension prunes its own; the exte
   await start($)
   const left = [...w.files.keys()].sort()
   expect(left).toEqual([`${dir}/${'abcdef12-0000-0000-0000-000000000000'}.json`, `${dir}/account_ttl.json`, `${dir}/new.json.mod-b.tmp`, `${dir}/recent-session.json`, `${prim}/old-bridge.json`].sort())
+})
+
+// S5: the model call must not wait on the file move.
+test('a main-thread request returns without waiting for the session file move', async ($, on) => {
+  const w = world(on, { context: { tokens: 310000, window: 1000000, percent: 31 } })
+  on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
+  })
+  await start($)
+  let release = () => {}
+  w.mvGate = new Promise<void>(r => { release = r })
+  const stepped = (async () => {
+    for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
+    return 'returned'
+  })()
+  const first = await Promise.race([stepped, sleep(200).then(() => 'blocked on mv')])
+  expect(first).toBe('returned')
+  release()
+  await settle()
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)!.last_api_call_ts).toBeGreaterThan(0)
 })

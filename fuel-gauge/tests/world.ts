@@ -21,6 +21,8 @@ export type World = {
   context: { tokens?: number; window: number; percent?: number }
   mtimes: Map<string, number>
   surfaces: string[]
+  /** While set, every `mv` waits for it, so a test can see what waits on the move. */
+  mvGate?: Promise<void>
 }
 
 export type WorldOptions = {
@@ -31,8 +33,6 @@ export type WorldOptions = {
   rateLimits?: SessionRateLimit[]
   store?: Record<string, unknown>
   noProcess?: boolean
-  /** Holds every `mv` until it resolves, so a test can see what waits on the move. */
-  mvGate?: Promise<void>
   /** Every `mv` exits 1, as when the target directory is not writable. */
   mvFails?: boolean
 }
@@ -85,7 +85,7 @@ export function world(on: On, o: WorldOptions = {}): World {
     w.runs.push(argv)
     if (o.noProcess) return { deny: 'no host commands here' }
     if (argv[0] === 'mv') {
-      if (o.mvGate) await o.mvGate
+      if (w.mvGate) await w.mvGate
       if (o.mvFails) return { value: { exitCode: 1, stdout: '', stderr: 'denied', isStdoutTruncated: false, isStderrTruncated: false } }
       const [, , from, to] = argv
       if (from && to && w.files.has(from)) {
@@ -135,6 +135,19 @@ export async function start(
   isInteractive = true,
 ): Promise<void> {
   await $.session.start({ cwd: ROOT, surface: isInteractive ? 'terminal' : null, isInteractive })
+}
+
+// The runtime has timers; the hooks module's types (no DOM, no Node) do not declare them.
+const timer = globalThis as unknown as { setTimeout: (f: () => void, ms: number) => unknown }
+
+/** Resolves after `ms` of real time, not the mock clock's. */
+export function sleep(ms: number): Promise<void> {
+  return new Promise(r => timer.setTimeout(r, ms))
+}
+
+/** Lets queued work (a write the hook did not wait for) finish. */
+export async function settle(): Promise<void> {
+  for (let i = 0; i < 5; i++) await sleep(0)
 }
 
 export function sessionFile(w: World, dir: string, sid = SID): Record<string, unknown> | undefined {
