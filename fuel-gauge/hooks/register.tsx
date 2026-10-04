@@ -135,6 +135,14 @@ async function chooseOutDir($: $, home: string): Promise<{ outDir: string; shado
   return { outDir: core.outDirFor(home, live), shadow: live }
 }
 
+/** Re-reads the status line, so re-wiring it mid-session moves the writes at the next turn's end. */
+async function refreshOutDir($: $): Promise<void> {
+  const m = await getMeta($)
+  if (!m.home) return
+  const where = await chooseOutDir($, m.home)
+  if (where.outDir !== m.outDir) await patchMeta($, where)
+}
+
 async function accountTtl($: $, m: FuelMeta): Promise<number | undefined> {
   const paths = [`${m.outDir}/account_ttl.json`]
   if (m.home && m.shadow) paths.push(`${m.home}/${core.PRIMARY_DIR}/account_ttl.json`)
@@ -553,6 +561,7 @@ export const register: Register = on => {
     const result = await next(e)
     try {
       await syncSession($)
+      await refreshOutDir($)
       if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
       await refreshTtl($)
       await writeSessionFile($)
@@ -565,6 +574,7 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     const result = await next(e)
     try {
+      await refreshOutDir($)
       if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
       await refreshTtl($)
       await writeSessionFile($)

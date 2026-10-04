@@ -127,3 +127,18 @@ test('a main-thread request returns without waiting for the session file move', 
   await settle()
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)!.last_api_call_ts).toBeGreaterThan(0)
 })
+
+// N3: the output directory follows the status line, re-checked at every turn's end.
+test('re-wiring the status line moves the mod between directories at the next Stop', async ($, on) => {
+  const w = world(on, { settings: BRIDGE_SETTINGS })
+  on('classic.Stop', () => ({}))
+  await start($)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
+  w.settings = { statusLine: { type: 'command', command: 'my-line.sh' } }
+  await $.classic.Stop({ transcript_path: '/t/none.jsonl', stop_hook_active: false } as never)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
+  w.files.delete(`${HOME}/.claude/fuel-gauge/${SID}.json`)
+  w.settings = BRIDGE_SETTINGS
+  await $.classic.Stop({ transcript_path: '/t/none.jsonl', stop_hook_active: false } as never)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
+})
