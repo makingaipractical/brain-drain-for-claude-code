@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "es2023", "lib": ["es2023"], "types": [],
+    "module": "esnext", "moduleResolution": "bundler", "allowImportingTsExtensions": true,
+    "strict": true, "noUncheckedIndexedAccess": true,
+    "noEmit": true, "skipLibCheck": true,
+    "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment"
+  },
+  "include": [
+    "/private/tmp/claude-501/bundled-skills/2.1.289/443df7f2ac6fade0671915cffb7c7782/plugin-authoring/types/claude-code.d.ts",
+    "fuel-gauge/hooks", "fuel-gauge/types", "fuel-gauge/tests"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "fuel-gauge-local",
+  "owner": { "name": "MakingAIPractical" },
+  "description": "Local marketplace for the Fuel Gauge mod (not published)",
+  "plugins": [
+    { "name": "fuel-gauge", "source": "./fuel-gauge", "description": "Context, cache countdown and rate limits under the prompt; writes the Fuel Gauge session file" }
+  ]
+}

@@ -1,0 +1,11 @@
+# Engine-written type files (regenerated on every load)
+.claude-plugin/types/
+**/.claude-plugin/types/
+# Build / dependency output
+node_modules/
+*.tmp
+.DS_Store
+# Credentials, never
+.env
+*.pem
+*.key
