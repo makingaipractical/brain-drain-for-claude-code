@@ -63,8 +63,8 @@ async function readJson($: $, path: string): Promise<unknown> {
 // ---------------------------------------------------------------- writing files
 
 // `$.fs.write` is not atomic, so a file is written beside its target and moved
-// into place. The temp name ends in `.tmp`, which the extension's hourly
-// cleanup collects should a move ever fail.
+// into place. A failed move removes its temp file; `$.fs` cannot delete, so a
+// host with no commands at all leaves that one file, once per process.
 let canMove = true
 
 async function writeAtomic($: $, path: string, text: string): Promise<void> {
@@ -74,6 +74,7 @@ async function writeAtomic($: $, path: string, text: string): Promise<void> {
     try {
       const moved = await $.process.run(['mv', '-f', tmp, path], { timeoutMs: 5000 })
       if (moved.exitCode === 0) return
+      await $.process.run(['rm', '-f', tmp], { timeoutMs: 5000 }).catch(() => undefined)
     } catch {
       // No host commands here (a host other than the CLI): write in place from now on.
       canMove = false
@@ -142,6 +143,36 @@ async function accountTtl($: $, m: FuelMeta): Promise<number | undefined> {
     if (f && typeof f.detected_ttl === 'number' && f.detected_ttl > 0) return f.detected_ttl
   }
   return undefined
+}
+
+// The extension prunes its own directory (session files after 36 h, temp files
+// after 1 h). Nothing prunes the shadow directory, so the mod does, alike.
+const SESSION_MAX_AGE_MS = 36 * 3600_000
+const TMP_MAX_AGE_MS = 3600_000
+const META_FILES = new Set(['account_ttl.json', 'config.json'])
+
+async function pruneShadow($: $, m: FuelMeta): Promise<void> {
+  if (!m.shadow || !m.interactive || !m.outDir || !canMove) return
+  const now = await $.clock.now()
+  const stale: string[] = []
+  let entries: { name: string; kind: string }[] = []
+  try {
+    entries = await $.fs.list(m.outDir)
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    if (entry.kind !== 'file' || META_FILES.has(entry.name)) continue
+    const maxAge = entry.name.endsWith('.tmp') ? TMP_MAX_AGE_MS : entry.name.endsWith('.json') ? SESSION_MAX_AGE_MS : undefined
+    if (maxAge === undefined) continue
+    const path = `${m.outDir}/${entry.name}`
+    try {
+      if ((await $.fs.stat(path)).mtimeMs < now - maxAge) stale.push(path)
+    } catch {
+      // gone already
+    }
+  }
+  if (stale.length > 0) await $.process.run(['rm', '-f', ...stale], { timeoutMs: 5000 }).catch(() => undefined)
 }
 
 // ---------------------------------------------------------------- exact TTL from the transcript
@@ -388,6 +419,7 @@ async function setup($: $): Promise<void> {
   const usage = await $.session.usage()
   await patchReading($, r => applyContext({ ...r, rateLimits: core.limitsFrom(usage.rateLimits), costUsd: usage.cost?.usd ?? r.costUsd }, usage.context))
   await pruneMisses($)
+  await pruneShadow($, m)
   await writeSessionFile($)
   lastStatus = undefined
   await refreshStatusLine($)

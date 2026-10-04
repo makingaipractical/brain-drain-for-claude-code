@@ -81,3 +81,28 @@ test('after /clear the new session file starts clean and the old one is left as 
   expect(after.model).toBe('claude-opus-5-5')
   expect(sessionFile(w, dir)).toEqual(before)
 })
+
+// S2: nothing collects the shadow directory, so the mod cleans up after itself.
+test('a failed move removes its temp file and the file is written in place', async ($, on) => {
+  const w = world(on, { mvFails: true })
+  await start($)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
+  expect([...w.files.keys()].filter(k => k.endsWith('.tmp'))).toEqual([])
+})
+
+test('the shadow directory is pruned like the extension prunes its own; the extension directory is left alone', async ($, on) => {
+  const dir = `${HOME}/.claude/fuel-gauge-mod`
+  const prim = `${HOME}/.claude/fuel-gauge`
+  const w = world(on, { settings: BRIDGE_SETTINGS, files: {
+    [`${dir}/old-session.json`]: '{}', [`${dir}/recent-session.json`]: '{}',
+    [`${dir}/old.json.mod-a.tmp`]: '', [`${dir}/new.json.mod-b.tmp`]: '',
+    [`${dir}/account_ttl.json`]: '{}', [`${prim}/old-bridge.json`]: '{}',
+  } })
+  const now = w.clock.now()
+  const ago = (h: number) => now - h * 3600_000
+  for (const [k, h] of [['old-session.json', 40], ['recent-session.json', 30], ['old.json.mod-a.tmp', 2], ['new.json.mod-b.tmp', 0.2], ['account_ttl.json', 400]] as const) w.mtimes.set(`${dir}/${k}`, ago(h))
+  w.mtimes.set(`${prim}/old-bridge.json`, ago(400))
+  await start($)
+  const left = [...w.files.keys()].sort()
+  expect(left).toEqual([`${dir}/${'abcdef12-0000-0000-0000-000000000000'}.json`, `${dir}/account_ttl.json`, `${dir}/new.json.mod-b.tmp`, `${dir}/recent-session.json`, `${prim}/old-bridge.json`].sort())
+})
