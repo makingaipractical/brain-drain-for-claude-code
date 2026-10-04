@@ -143,3 +143,17 @@ test('the alert stays quiet while the main turn runs', async ($, on) => {
   await w.clock.advance(242_000)
   expect(w.toasts).toHaveLength(0)
 })
+
+// `/fuel bars` and `/fuel styles bars` switch style, as `/fuel style bars` does.
+test('a style name after /fuel or /fuel styles switches style', async ($, on) => {
+  const w = await setup($, on)
+  const run = (args: string) => $.command.run({ command: 'fuel', args, origin: { kind: 'composer' } as never, presentation: {} as never })
+  expect((await run('gauge')).text).toBe('Style: gauge.')
+  expect(w.store.get('prefs')).toMatchObject({ style: 'gauge' })
+  expect((await run('styles minimal')).text).toBe('Style: minimal.')
+  expect(w.store.get('prefs')).toMatchObject({ style: 'minimal' })
+  expect((await run('style Bars')).text).toBe('Style: bars.')
+  expect((await run('styles')).text).toContain('Styles, with')
+  expect((await run('styles neon')).text).toContain('Unknown style "neon"')
+  expect((await run('neon')).text).toContain('Unknown subcommand "neon"')
+})

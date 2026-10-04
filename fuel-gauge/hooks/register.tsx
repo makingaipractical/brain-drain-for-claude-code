@@ -318,9 +318,13 @@ const SAMPLE: FuelReading = {
 }
 
 async function runCommand($: $, args: string): Promise<string> {
-  const [sub = '', ...rest] = args.trim().split(/\s+/)
-  const arg = rest.join(' ')
-  switch (sub.toLowerCase()) {
+  const [first = '', ...rest] = args.trim().split(/\s+/)
+  let sub = first.toLowerCase()
+  let arg = rest.join(' ')
+  // `/fuel bars` and `/fuel styles bars` are shorthand for `/fuel style bars`.
+  if (core.isStyle(sub)) [sub, arg] = ['style', sub]
+  else if (sub === 'styles' && arg !== '') sub = 'style'
+  switch (sub) {
     case 'help':
       return ['Fuel Gauge commands:', ...core.HELP].join('\n')
     case 'styles': {
@@ -335,19 +339,20 @@ async function runCommand($: $, args: string): Promise<string> {
       }
       lines.push('', 'While the cache has expired and the prompt box holds text, the band adds:')
       lines.push(`  ${core.styleText('minimal', core.makeView({ ...r, lastApiS: t - r.ttl - 60 }, t, true)).split('\n')[1] ?? ''}`)
-      lines.push('', 'Switch with /fuel style <name>.')
+      lines.push('', 'Switch with /fuel <name>, e.g. /fuel gauge.')
       return lines.join('\n')
     }
     case 'style': {
-      if (!core.isStyle(arg)) return `Unknown style "${arg}". Styles: ${core.STYLES.join(', ')}.`
-      await setPrefs($, { style: arg })
+      const name = arg.toLowerCase()
+      if (!core.isStyle(name)) return `Unknown style "${arg}". Styles: ${core.STYLES.join(', ')}.`
+      await setPrefs($, { style: name })
       await refreshStatusLine($)
       $.ui.invalidate('ui.render')
-      return arg === 'off'
+      return name === 'off'
         ? 'Display off. The session file for the VS Code extension is still written.'
-        : arg === 'line'
+        : name === 'line'
           ? 'Style: line (plain text under the prompt; Claude Code prefixes it with the mod name).'
-          : `Style: ${arg}.`
+          : `Style: ${name}.`
     }
     case 'place': {
       if (arg !== 'below' && arg !== 'above') return 'Place: below (under the prompt, the default) or above (the band above the prompt).'
@@ -392,7 +397,7 @@ async function runCommand($: $, args: string): Promise<string> {
       return lines.join('\n')
     }
     default:
-      return `Unknown subcommand "${sub}".\n${core.HELP.join('\n')}`
+      return `Unknown subcommand "${first}".\n${core.HELP.join('\n')}`
   }
 }
 
@@ -402,7 +407,7 @@ async function setup($: $): Promise<void> {
   await $.command.register({
     name: 'fuel',
     description: 'Fuel Gauge: cache-miss report, display styles, expiry alert',
-    argumentHint: '[help|styles|style <name>|place below|above|warn <s>|sound on|off]',
+    argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off]',
     immediate: true,
   })
 

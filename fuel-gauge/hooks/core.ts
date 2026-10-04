@@ -544,7 +544,8 @@ export function limitsFrom(list: readonly { kind: string; percentUsed: number; r
 export const HELP = [
   '/fuel                 cache-miss report: today, last 7 days, tokens re-written, measured cost',
   '/fuel styles          preview every display style with the current figures',
-  '/fuel style <name>    switch style: minimal, bars, gauge, compact, line, off',
+  '/fuel <style>         switch style: minimal, bars, gauge, compact, line, off',
+  '                      (/fuel style <name> and /fuel styles <name> work too)',
   '/fuel place below|above  draw under the prompt (default) or in the band above it',
   '/fuel warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
   '/fuel sound on|off    play a short chime with the alert (off by default)',
