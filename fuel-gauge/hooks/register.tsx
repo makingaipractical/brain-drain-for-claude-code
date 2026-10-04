@@ -629,7 +629,7 @@ export const register: Register = on => {
     if (e.props.hasSurvey) return others
     const p = await read($, prefs)
     if ((p?.place ?? 'below') !== 'above') return others
-    const rows = await gaugeRows($, p, e.props.bodyColumns)
+    const rows = await gaugeRows($, p, e.props.bodyColumns).catch(() => undefined)
     if (!rows) return others
     const { Box, Text } = $.ui.resolve(e)
     return (
@@ -646,7 +646,7 @@ export const register: Register = on => {
     const engine = await next(e)
     const p = await read($, prefs)
     if ((p?.place ?? 'below') !== 'below') return engine
-    const rows = await gaugeRows($, p, e.viewport?.columns)
+    const rows = await gaugeRows($, p, e.viewport?.columns).catch(() => undefined)
     if (!rows) return engine
     const { Box, Text } = $.ui.resolve(e)
     return (
@@ -658,6 +658,7 @@ export const register: Register = on => {
   })
 }
 
+/** The rows to draw, or undefined to draw nothing. Callers swallow a throw (a state read refused mid-unload) and pass the other rows through. */
 async function gaugeRows($: $, p: FuelPrefs | null, cols: number | undefined): Promise<core.Row[] | undefined> {
   const style = p?.style ?? core.DEFAULT_STYLE
   if (!core.isBandStyle(style)) return undefined
