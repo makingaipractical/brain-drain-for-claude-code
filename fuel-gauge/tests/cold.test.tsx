@@ -121,3 +121,25 @@ test('under the prompt a narrow terminal gets the narrow form', async ($, on) =>
   expect([...gauge].length).toBeLessThanOrEqual(40)
   await ui.unmount()
 })
+
+// S6: a background agent's turn must not hold the alert off after the main turn ended.
+test('a subagent turn that outlives the main turn does not silence the expiry alert', async ($, on) => {
+  on('turn.start', ($2: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const w = await setup($, on)
+  await $.turn.start({ text: 'hi', turnId: 'main' })
+  await $.turn.complete({ turnId: 'main', reason: 'answer', answer: '', durationMs: 1000, isAborted: false })
+  await $.turn.start({ text: '', turnId: 'sub' })
+  for await (const _ of $.turn.step({ turnId: 'sub', index: 0, model: 'claude-opus-5-5', messageCount: 1, agentId: 'a1' } as never)) { /* drain */ }
+  await w.clock.advance(242_000)
+  expect(w.toasts).toHaveLength(1)
+})
+
+test('the alert stays quiet while the main turn runs', async ($, on) => {
+  on('turn.start', ($2: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  const w = await setup($, on)
+  await $.turn.start({ text: 'hi', turnId: 'main' })
+  await w.clock.advance(242_000)
+  expect(w.toasts).toHaveLength(0)
+})

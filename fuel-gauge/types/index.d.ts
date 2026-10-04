@@ -56,7 +56,8 @@ declare module 'claude-code' {
       reading: FuelReading | null
       prefs: FuelPrefs | null
       drafting: boolean
-      working: boolean
+      /** Turns begun and not yet complete; a subagent's leaves at its first request. */
+      turns: string[] | null
       meta: FuelMeta | null
     }
   }

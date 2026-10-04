@@ -11,7 +11,7 @@ import type { FuelMeta, FuelMiss, FuelPrefs, FuelReading } from '../types'
 const reading = atom({ plugin: 'fuel-gauge', key: 'reading' } as const, null)
 const prefs = atom({ plugin: 'fuel-gauge', key: 'prefs' } as const, null)
 const drafting = atom({ plugin: 'fuel-gauge', key: 'drafting' } as const, false)
-const working = atom({ plugin: 'fuel-gauge', key: 'working' } as const, false)
+const turns = atom({ plugin: 'fuel-gauge', key: 'turns' } as const, null)
 const meta = atom({ plugin: 'fuel-gauge', key: 'meta' } as const, null)
 
 const DEFAULT_PREFS: FuelPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false }
@@ -223,6 +223,12 @@ async function refreshTtl($: $): Promise<void> {
   }
 }
 
+// turn.start does not say whose turn it is; turn.step and turn.complete do.
+async function dropTurn($: $, turnId: string): Promise<void> {
+  if (!(await read($, turns))?.includes(turnId)) return
+  await update($, turns, t => (t ?? []).filter(id => id !== turnId))
+}
+
 // ---------------------------------------------------------------- display
 
 let lastStatus: string | undefined
@@ -257,7 +263,7 @@ async function tick($: $): Promise<void> {
 
   // The expiry alert: once per cache window, only while no turn runs.
   if (c.kind !== 'live' || p.warnSeconds <= 0 || c.left > p.warnSeconds) return
-  if (await read($, working)) return
+  if ((await read($, turns))?.length) return
   const m = await getMeta($)
   if (m.alertedFor === r.lastApiS) return
   await patchMeta($, { alertedFor: r.lastApiS })
@@ -462,7 +468,10 @@ export const register: Register = on => {
 
   // One model request. Main thread only: subagents keep caches of their own.
   on('turn.step', async function* ($, e, next) {
-    if (e.agentId !== undefined) return yield* next(e)
+    if (e.agentId !== undefined) {
+      await dropTurn($, e.turnId).catch(() => undefined)
+      return yield* next(e)
+    }
     await syncSession($).catch(() => undefined)
     const startMs = await $.clock.now()
     const costAtStart = (await read($, reading))?.costUsd
@@ -565,14 +574,16 @@ export const register: Register = on => {
     return result
   })
 
+  // The alert waits while a main turn runs. A subagent's turn leaves the list at
+  // its first request, so a background agent never holds the alert off.
   on('turn.start', async ($, e, next) => {
-    await update($, working, () => true)
+    await update($, turns, t => [...(t ?? []), e.turnId])
     return next(e)
   })
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined) await update($, working, () => false)
+    await dropTurn($, e.turnId)
     return result
   })
 
