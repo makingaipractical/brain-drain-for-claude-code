@@ -91,6 +91,7 @@ function writeSessionFile($: $): Promise<void> {
 }
 
 async function doWriteSessionFile($: $): Promise<void> {
+  await syncSession($)
   const m = await getMeta($)
   const r = await read($, reading)
   // A `claude -p` run has no status line, so the bridge writes no file for it.
@@ -99,6 +100,25 @@ async function doWriteSessionFile($: $): Promise<void> {
   const ids = { sessionId: await $.session.id(), cwd: await $.session.cwd(), projectDir: await $.session.root() }
   const file = core.sessionFile(r, ids, await nowS($))
   await writeAtomic($, `${m.outDir}/${ids.sessionId}.json`, JSON.stringify(file, null, 2))
+}
+
+/**
+ * session.start fires once per process, never on /clear, so the reading would
+ * outlive its session. When the id changes the reading starts again: from this
+ * mod's own file for that id (a /resume), else empty but for the account's
+ * TTL, the rate limits and the model.
+ */
+async function syncSession($: $): Promise<void> {
+  const id = await $.session.id()
+  const m = await getMeta($)
+  if (m.sessionId === id) return
+  await patchMeta($, { sessionId: id, alertedFor: undefined, pendingMiss: undefined })
+  const prev = await read($, reading)
+  if (m.sessionId === undefined || !prev) return
+  const own = m.outDir ? core.readingFromFile(await readJson($, `${m.outDir}/${id}.json`), prev.ttl, prev.ttlSource) : undefined
+  const usage = await $.session.usage()
+  const next = { ...(own ?? core.freshSession(prev)), rateLimits: core.limitsFrom(usage.rateLimits), costUsd: usage.cost?.usd }
+  await update($, reading, () => applyContext(next, usage.context))
 }
 
 // ---------------------------------------------------------------- the bridge handover
@@ -350,6 +370,7 @@ async function setup($: $): Promise<void> {
   const home = await $.env.get('HOME')
   const where = home ? await chooseOutDir($, home) : { outDir: undefined, shadow: false }
   await patchMeta($, { home, outDir: where.outDir, shadow: where.shadow })
+  await syncSession($)
   const m = await getMeta($)
 
   // A reload keeps the reading in $.state. A new process seeds it from this
@@ -410,6 +431,7 @@ export const register: Register = on => {
   // One model request. Main thread only: subagents keep caches of their own.
   on('turn.step', async function* ($, e, next) {
     if (e.agentId !== undefined) return yield* next(e)
+    await syncSession($).catch(() => undefined)
     const startMs = await $.clock.now()
     const costAtStart = (await read($, reading))?.costUsd
     const result = yield* next(e)
@@ -482,6 +504,7 @@ export const register: Register = on => {
   on('classic.SessionStart', async ($, e, next) => {
     const result = await next(e)
     try {
+      await syncSession($)
       if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
       await refreshTtl($)
       await writeSessionFile($)

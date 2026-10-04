@@ -58,3 +58,26 @@ test('a non-interactive run writes no session file, no account TTL, and spawns n
   expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`))).toEqual([])
   expect(w.runs).toEqual([])
 })
+
+// B2: session.start never fires on /clear, so the reading must follow the session id.
+test('after /clear the new session file starts clean and the old one is left as it was', async ($, on) => {
+  const w = world(on, { settings: BRIDGE_SETTINGS, context: { tokens: 310000, window: 1000000, percent: 31 } })
+  on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
+  })
+  on('classic.SessionStart', () => ({}))
+  await start($)
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
+  const dir = `${HOME}/.claude/fuel-gauge-mod`
+  const before = sessionFile(w, dir)!
+  expect(before.used_percentage).toBe(31)
+  expect(before.last_api_call_ts).toBeGreaterThan(0)
+  const NEW = '99999999-0000-0000-0000-000000000000'
+  w.sid = NEW
+  w.context = { window: 1000000 }
+  await $.classic.SessionStart({ source: 'clear', transcript_path: '/t/new.jsonl' } as never)
+  const after = sessionFile(w, dir, NEW)!
+  expect(after).toMatchObject({ session_id: NEW, used_percentage: 0, context_unknown: false, last_api_call_ts: 0, cache_creation_input_tokens: 0 })
+  expect(after.model).toBe('claude-opus-5-5')
+  expect(sessionFile(w, dir)).toEqual(before)
+})

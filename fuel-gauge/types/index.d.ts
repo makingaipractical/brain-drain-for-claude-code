@@ -30,6 +30,8 @@ export type FuelPrefs = { style: FuelStyle; place: FuelPlace; warnSeconds: numbe
 export type FuelMeta = {
   /** False under `claude -p` and the SDK: no session file then, as the bridge writes none. */
   interactive?: boolean
+  /** The session the reading belongs to; /clear, /resume and a fork change it. */
+  sessionId?: string
   home?: string
   outDir?: string
   shadow?: boolean

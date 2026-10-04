@@ -512,6 +512,11 @@ export function emptyReading(ttl = DEFAULT_TTL, source: FuelReading['ttlSource']
   return { unknown: false, rateLimits: [], observed: false, ttl, ttlSource: source, cacheRead: 0, cacheCreate: 0, outputTokens: 0 }
 }
 
+/** A new session in the same process (/clear): the account's TTL, limits and the model carry over, nothing else. */
+export function freshSession(prev: FuelReading): FuelReading {
+  return { ...emptyReading(prev.ttl, prev.ttlSource), rateLimits: prev.rateLimits, model: prev.model, effort: prev.effort, window: prev.window }
+}
+
 /** A reading restored from this mod's own earlier file (a resume or a fresh process). */
 export function readingFromFile(file: unknown, fallbackTtl: number, fallbackSource: FuelReading['ttlSource']): FuelReading | undefined {
   if (typeof file !== 'object' || file === null) return undefined
