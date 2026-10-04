@@ -474,7 +474,13 @@ export const register: Register = on => {
         const prev = (await read($, reading)) ?? core.emptyReading()
         const startS = startMs / 1000
         const kind = core.classifyStep(prev, startS, usage)
-        const upgrade = core.warmGapUpgrade(prev, startS, usage)
+        let upgrade = core.warmGapUpgrade(prev, startS, usage)
+        if (upgrade) {
+          // The earlier requests' rows are on disk and name the tier exactly. A cache
+          // something else kept warm must not pass for the 1-hour tier until Stop.
+          await refreshTtl($).catch(() => undefined)
+          if ((await read($, reading))?.ttlSource === 'transcript') upgrade = false
+        }
         const r = await patchReading($, cur => ({
           ...cur,
           lastApiS: endS,
