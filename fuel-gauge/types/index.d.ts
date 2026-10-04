@@ -28,6 +28,8 @@ export type FuelPlace = 'below' | 'above'
 export type FuelPrefs = { style: FuelStyle; place: FuelPlace; warnSeconds: number; sound: boolean }
 
 export type FuelMeta = {
+  /** False under `claude -p` and the SDK: no session file then, as the bridge writes none. */
+  interactive?: boolean
   home?: string
   outDir?: string
   shadow?: boolean

@@ -93,7 +93,9 @@ function writeSessionFile($: $): Promise<void> {
 async function doWriteSessionFile($: $): Promise<void> {
   const m = await getMeta($)
   const r = await read($, reading)
-  if (!m.outDir || !r) return
+  // A `claude -p` run has no status line, so the bridge writes no file for it.
+  // Neither does the mod: in primary mode it would take over the VS Code gauge.
+  if (!m.interactive || !m.outDir || !r) return
   const ids = { sessionId: await $.session.id(), cwd: await $.session.cwd(), projectDir: await $.session.root() }
   const file = core.sessionFile(r, ids, await nowS($))
   await writeAtomic($, `${m.outDir}/${ids.sessionId}.json`, JSON.stringify(file, null, 2))
@@ -142,6 +144,8 @@ async function refreshTtl($: $): Promise<void> {
   const m = await getMeta($)
   const path = m.transcriptPath
   if (!path || !m.outDir) return
+  // Headless with nothing drawing: the TTL would show nowhere, so spawn nothing for it.
+  if (!m.interactive && (await $.session.surfaces()).length === 0) return
   let size = 0
   try {
     size = (await $.fs.stat(path)).size
@@ -163,7 +167,7 @@ async function refreshTtl($: $): Promise<void> {
   await patchReading($, r => ({ ...r, ttl: hit.ttl, ttlSource: 'transcript' }))
   const accountPath = `${m.outDir}/account_ttl.json`
   const stored = (await readJson($, accountPath)) as { detected_ttl?: number; detected_at?: number } | undefined
-  if (core.shouldWriteAccountTtl(stored, hit.ttl, hit.atS)) {
+  if (m.interactive && core.shouldWriteAccountTtl(stored, hit.ttl, hit.atS)) {
     await writeAtomic($, accountPath, JSON.stringify({ detected_ttl: hit.ttl, detected_at: hit.atS }))
   }
 }
@@ -317,7 +321,8 @@ async function runCommand($: $, args: string): Promise<string> {
       lines.push('Cost is the session ledger\'s measured rise over the turn that opened cold; misses before a cost reading have none.')
       lines.push('')
       lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'}`)
-      lines.push(`Session file: ${dir}${m.shadow ? ' (shadow copy: the bridge is still the status line, so its directory is left alone)' : ''}`)
+      if (!m.interactive) lines.push('Session file: not written (not an interactive session)')
+      else lines.push(`Session file: ${dir}${m.shadow ? ' (shadow copy: the bridge is still the status line, so its directory is left alone)' : ''}`)
       lines.push('More: /fuel help')
       return lines.join('\n')
     }
@@ -394,6 +399,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     try {
+      await patchMeta($, { interactive: e.isInteractive })
       await setup($)
     } catch (err) {
       $.ui.log(`fuel-gauge: setup failed: ${String(err)}`, { to: 'debug' })

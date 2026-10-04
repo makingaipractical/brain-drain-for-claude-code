@@ -15,6 +15,12 @@ export type World = {
   toasts: string[]
   store: Map<string, unknown>
   clock: MockClock
+  /** The session id `$.session.id()` answers; a /clear changes it. */
+  sid: string
+  settings: unknown
+  context: { tokens?: number; window: number; percent?: number }
+  mtimes: Map<string, number>
+  surfaces: string[]
 }
 
 export type WorldOptions = {
@@ -25,6 +31,8 @@ export type WorldOptions = {
   rateLimits?: SessionRateLimit[]
   store?: Record<string, unknown>
   noProcess?: boolean
+  /** Holds every `mv` until it resolves, so a test can see what waits on the move. */
+  mvGate?: Promise<void>
 }
 
 export function world(on: On, o: WorldOptions = {}): World {
@@ -35,6 +43,11 @@ export function world(on: On, o: WorldOptions = {}): World {
     toasts: [],
     store: new Map(Object.entries(o.store ?? {})),
     clock: mock.clock(on, { now: o.now ?? Date.UTC(2026, 9, 3, 12, 0, 0) }),
+    sid: SID,
+    settings: o.settings ?? {},
+    context: o.context ?? { window: 1000000 },
+    mtimes: new Map(),
+    surfaces: ['terminal'],
   }
   mock.env(on, { HOME })
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
@@ -47,27 +60,42 @@ export function world(on: On, o: WorldOptions = {}): World {
     return { value: undefined }
   })
   on('store.keys', () => ({ value: [...w.store.keys()] }))
-  on('settings.read', () => ({ value: (o.settings ?? {}) as never }))
+  on('settings.read', () => ({ value: w.settings as never }))
   on('fs.read', ($, e) => (w.files.has(e.path) ? { value: w.files.get(e.path)! } : { deny: `ENOENT ${e.path}` }))
   on('fs.write', ($, e) => {
     w.files.set(e.path, e.text)
+    w.mtimes.set(e.path, w.clock.now())
     return { value: undefined }
   })
   on('fs.stat', ($, e) =>
-    w.files.has(e.path) ? { value: { kind: 'file', size: w.files.get(e.path)!.length, mtimeMs: 0, isLink: false } } : { deny: `ENOENT ${e.path}` },
+    w.files.has(e.path)
+      ? { value: { kind: 'file', size: w.files.get(e.path)!.length, mtimeMs: w.mtimes.get(e.path) ?? w.clock.now(), isLink: false } }
+      : { deny: `ENOENT ${e.path}` },
   )
-  on('process.run', ($, e) => {
+  on('fs.list', ($, e) => {
+    const dir = e.path.endsWith('/') ? e.path : `${e.path}/`
+    const names = [...w.files.keys()].filter(k => k.startsWith(dir) && !k.slice(dir.length).includes('/'))
+    if (names.length === 0) return { deny: `ENOENT ${e.path}` }
+    return { value: names.map(k => ({ name: k.slice(dir.length), kind: 'file' as const, size: w.files.get(k)!.length })) as never }
+  })
+  on('process.run', async ($, e) => {
     const argv = [...e.argv]
     w.runs.push(argv)
     if (o.noProcess) return { deny: 'no host commands here' }
     if (argv[0] === 'mv') {
+      if (o.mvGate) await o.mvGate
       const [, , from, to] = argv
       if (from && to && w.files.has(from)) {
         w.files.set(to, w.files.get(from)!)
+        w.mtimes.set(to, w.mtimes.get(from) ?? w.clock.now())
         w.files.delete(from)
         return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
       }
       return { value: { exitCode: 1, stdout: '', stderr: 'missing', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    if (argv[0] === 'rm') {
+      for (const f of argv.slice(1)) if (!f.startsWith('-')) w.files.delete(f)
+      return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (argv[0] === 'tail') {
       const n = Number(argv[2])
@@ -76,11 +104,12 @@ export function world(on: On, o: WorldOptions = {}): World {
     }
     return { value: { exitCode: 127, stdout: '', stderr: 'unknown', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  on('session.id', () => ({ value: SID }))
+  on('session.id', () => ({ value: w.sid }))
+  on('session.surfaces', () => ({ value: w.surfaces as never }))
   on('session.cwd', () => ({ value: ROOT }))
   on('session.root', () => ({ value: ROOT }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: o.context ?? { window: 1000000 }, rateLimits: o.rateLimits ?? [], cost: { usd: 0 } },
+    value: { startedAt: 0, context: w.context, rateLimits: o.rateLimits ?? [], cost: { usd: 0 } },
   }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
@@ -98,11 +127,14 @@ export function world(on: On, o: WorldOptions = {}): World {
   return w
 }
 
-export async function start($: { session: { start: (e: { cwd: string; surface: 'terminal'; isInteractive: boolean }) => Promise<unknown> } }): Promise<void> {
-  await $.session.start({ cwd: ROOT, surface: 'terminal', isInteractive: true })
+export async function start(
+  $: { session: { start: (e: { cwd: string; surface: 'terminal' | null; isInteractive: boolean }) => Promise<unknown> } },
+  isInteractive = true,
+): Promise<void> {
+  await $.session.start({ cwd: ROOT, surface: isInteractive ? 'terminal' : null, isInteractive })
 }
 
-export function sessionFile(w: World, dir: string): Record<string, unknown> | undefined {
-  const text = w.files.get(`${dir}/${SID}.json`)
+export function sessionFile(w: World, dir: string, sid = SID): Record<string, unknown> | undefined {
+  const text = w.files.get(`${dir}/${sid}.json`)
   return text === undefined ? undefined : (JSON.parse(text) as Record<string, unknown>)
 }

@@ -37,3 +37,24 @@ test('without host commands the file is written in place', async ($, on) => {
   await start($)
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
 })
+
+const STEP_USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 300000, cache_creation_input_tokens: 12000, model: 'claude-opus-5-5' }
+const TRANSCRIPT_1H = JSON.stringify({ type: 'assistant', timestamp: '2026-10-03T11:00:00Z',
+  message: { usage: { cache_creation: { ephemeral_1h_input_tokens: 34038, ephemeral_5m_input_tokens: 0 } } } })
+
+// B1: the bridge never runs under `claude -p`, so the mod must not write there either.
+test('a non-interactive run writes no session file, no account TTL, and spawns nothing', async ($, on) => {
+  const w = world(on, { context: { tokens: 160000, window: 1000000, percent: 16 }, files: { '/t/s.jsonl': TRANSCRIPT_1H } })
+  w.surfaces = []
+  on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
+  })
+  on('classic.SessionStart', () => ({}))
+  on('classic.Stop', () => ({}))
+  await start($, false)
+  await $.classic.SessionStart({ source: 'startup', transcript_path: '/t/s.jsonl' } as never)
+  for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
+  await $.classic.Stop({ transcript_path: '/t/s.jsonl', stop_hook_active: false } as never)
+  expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`))).toEqual([])
+  expect(w.runs).toEqual([])
+})
