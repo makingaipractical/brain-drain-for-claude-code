@@ -613,7 +613,7 @@ export const register: Register = on => {
     const engine = await next(e)
     const p = await read($, prefs)
     if ((p?.place ?? 'below') !== 'below') return engine
-    const rows = await gaugeRows($, p, undefined)
+    const rows = await gaugeRows($, p, e.viewport?.columns)
     if (!rows) return engine
     const { Box, Text } = $.ui.resolve(e)
     return (

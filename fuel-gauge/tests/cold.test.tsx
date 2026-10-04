@@ -110,3 +110,14 @@ test('by default the gauge draws under the prompt and keeps the engine hint line
     expect(r.all.join(' ')).toContain('other mod')
   }
 })
+
+// S3: under the prompt the row narrows to the terminal's width, as the band above it does.
+test('under the prompt a narrow terminal gets the narrow form', async ($, on) => {
+  await setup($, on)
+  const ui = await $.ui.mount({ plugin: 'fuel-gauge', component: 'PromptHint', surface: 'terminal', viewport: { columns: 40, rows: 24 },
+    props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
+  const gauge = (await rows(ui as never)).gauge!
+  expect(gauge).toBe("ctx ▰▰▱▱▱ 31% │ cache ▰▰▰▰▰ 5:00")
+  expect([...gauge].length).toBeLessThanOrEqual(40)
+  await ui.unmount()
+})
