@@ -3,7 +3,7 @@ import type { TurnStepResult } from 'claude-code'
 import { start, world } from './world.ts'
 
 const BAND = (cols = 120) => ({
-  plugin: 'fuel-gauge', component: 'AbovePrompt' as const,
+  plugin: 'brain-drain', component: 'AbovePrompt' as const,
   props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: cols, scroll: { bodyRows: 9 } as never, view: {} as never },
 })
 
@@ -103,7 +103,7 @@ test('the expiry alert fires once, 60 s ahead, only while idle', async ($, on) =
 test('by default the gauge draws under the prompt and keeps the engine hint line', async ($, on) => {
   await setup($, on)
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'fuel-gauge', component: 'PromptHint', surface,
+    const ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface,
       props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
     const r = await rows(ui as never)
     expect(r.gauge).toContain('31%')
@@ -114,7 +114,7 @@ test('by default the gauge draws under the prompt and keeps the engine hint line
 // S3: under the prompt the row narrows to the terminal's width, as the band above it does.
 test('under the prompt a narrow terminal gets the narrow form', async ($, on) => {
   await setup($, on)
-  const ui = await $.ui.mount({ plugin: 'fuel-gauge', component: 'PromptHint', surface: 'terminal', viewport: { columns: 40, rows: 24 },
+  const ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface: 'terminal', viewport: { columns: 40, rows: 24 },
     props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
   const gauge = (await rows(ui as never)).gauge!
   expect(gauge).toBe("ctx ▰▰▱▱▱ 31% │ cache ▰▰▰▰▰ 5:00")

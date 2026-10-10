@@ -1,8 +1,8 @@
 {
-  "name": "fuel-gauge-local",
+  "name": "brain-drain-local",
   "owner": { "name": "MakingAIPractical" },
-  "description": "Local marketplace for the Fuel Gauge mod (not published)",
+  "description": "Local marketplace for the Brain Drain mod (not published)",
   "plugins": [
-    { "name": "fuel-gauge", "source": "./fuel-gauge", "description": "Context, cache countdown and rate limits under the prompt; writes the Fuel Gauge session file" }
+    { "name": "brain-drain", "source": "./brain-drain", "displayName": "Brain Drain for Claude Code", "description": "How full Claude's context is, when its cache goes cold, and how much of your 5-hour and weekly limits is left — right under the prompt in Claude Code." }
   ]
 }

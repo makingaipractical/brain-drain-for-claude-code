@@ -8,11 +8,11 @@ import type { FuelMeta, FuelMiss, FuelPrefs, FuelReading } from '../types'
 // session file) and a coloured band above the prompt. Never calls a model,
 // never compacts, never touches the prompt: every prompt hook passes through.
 
-const reading = atom({ plugin: 'fuel-gauge', key: 'reading' } as const, null)
-const prefs = atom({ plugin: 'fuel-gauge', key: 'prefs' } as const, null)
-const drafting = atom({ plugin: 'fuel-gauge', key: 'drafting' } as const, false)
-const turns = atom({ plugin: 'fuel-gauge', key: 'turns' } as const, null)
-const meta = atom({ plugin: 'fuel-gauge', key: 'meta' } as const, null)
+const reading = atom({ plugin: 'brain-drain', key: 'reading' } as const, null)
+const prefs = atom({ plugin: 'brain-drain', key: 'prefs' } as const, null)
+const drafting = atom({ plugin: 'brain-drain', key: 'drafting' } as const, false)
+const turns = atom({ plugin: 'brain-drain', key: 'turns' } as const, null)
+const meta = atom({ plugin: 'brain-drain', key: 'meta' } as const, null)
 
 const DEFAULT_PREFS: FuelPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false }
 const CHIME = 'assets/chime.wav'

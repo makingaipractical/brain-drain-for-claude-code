@@ -1,7 +1,0 @@
-{
-  "name": "fuel-gauge",
-  "version": "0.1.0",
-  "description": "Context fill, exact cache countdown, rate limits and model/effort in a coloured band above the prompt; writes the Fuel Gauge session file for the VS Code extension.",
-  "author": { "name": "MakingAIPractical" },
-  "types": "./types/index.d.ts"
-}

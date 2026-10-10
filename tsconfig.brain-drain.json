@@ -8,6 +8,6 @@
   },
   "include": [
     "/private/tmp/claude-501/bundled-skills/2.1.289/443df7f2ac6fade0671915cffb7c7782/plugin-authoring/types/claude-code.d.ts",
-    "fuel-gauge/hooks", "fuel-gauge/types", "fuel-gauge/tests"
+    "brain-drain/hooks", "brain-drain/types", "brain-drain/tests"
   ]
 }

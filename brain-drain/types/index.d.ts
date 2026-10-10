@@ -52,7 +52,7 @@ export type FuelMiss = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'fuel-gauge': {
+    'brain-drain': {
       reading: FuelReading | null
       prefs: FuelPrefs | null
       drafting: boolean
