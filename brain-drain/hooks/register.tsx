@@ -3,11 +3,13 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import * as agentBars from './agents.ts'
 import * as core from './core.ts'
-import type { DrainAgent, DrainAgents, DrainMeta, DrainMiss, DrainPrefs, DrainReading } from '../types'
+import * as notify from './notify.ts'
+import type { DrainAgent, DrainAgents, DrainMeta, DrainMiss, DrainNotify, DrainPrefs, DrainReading } from '../types'
 
 // Brain Drain, the mod: the data source for the VS Code extension (the bridge's
 // session file) and a coloured line under the prompt (or above it, by choice). Never calls a model,
-// never compacts, never touches the prompt: every prompt hook passes through.
+// never compacts, never rewrites the prompt. The one thing it hands the model is the self-notice,
+// off unless asked for: a line of facts when a threshold is crossed.
 
 const reading = atom({ plugin: 'brain-drain', key: 'reading' } as const, null)
 const prefs = atom({ plugin: 'brain-drain', key: 'prefs' } as const, null)
@@ -16,7 +18,7 @@ const turns = atom({ plugin: 'brain-drain', key: 'turns' } as const, null)
 const meta = atom({ plugin: 'brain-drain', key: 'meta' } as const, null)
 const agents = atom({ plugin: 'brain-drain', key: 'agents' } as const, null)
 
-const DEFAULT_PREFS: DrainPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false, agents: false }
+const DEFAULT_PREFS: DrainPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false, agents: false, notify: notify.DEFAULT_NOTIFY }
 const CHIME = 'assets/chime.wav'
 const MISS_RETENTION_S = 60 * 86400
 
@@ -115,7 +117,7 @@ async function syncSession($: $): Promise<void> {
   const id = await $.session.id()
   const m = await getMeta($)
   if (m.sessionId === id) return
-  await patchMeta($, { sessionId: id, alertedFor: undefined, pendingMiss: undefined })
+  await patchMeta($, { sessionId: id, alertedFor: undefined, pendingMiss: undefined, notified: undefined })
   await clearAgents($)
   const prev = await read($, reading)
   if (m.sessionId === undefined || !prev) return
@@ -437,6 +439,126 @@ async function pruneMisses($: $): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------- the self-notice
+
+async function notifySettings($: $): Promise<DrainNotify> {
+  return notify.effective(notify.sanitize((await getPrefs($)).notify), (await getMeta($)).notifyEnv)
+}
+
+let notifyChain: Promise<unknown> = Promise.resolve()
+
+/**
+ * The note to hand the model now, or undefined. Marks what it reports as fired
+ * before it returns, one call at a time, so two tool calls ending together
+ * cannot both carry it. Works whatever `meta.interactive` says: a `claude -p`
+ * run gets the note though it gets no session file.
+ */
+function takeNotice($: $): Promise<{ text: string; crossed: string[] } | undefined> {
+  const run = notifyChain.then(async () => {
+    const n = await notifySettings($)
+    if (!n.on) return undefined
+    await syncSession($)
+    const usage = await $.session.usage()
+    const f = notify.figures(usage.context, core.limitsFrom(usage.rateLimits))
+    const before = (await getMeta($)).notified ?? []
+    const t = await nowS($)
+    const { crossed, fired } = notify.evaluate(f, n, before, t)
+    if (crossed.length > 0 || fired.length !== before.length) await patchMeta($, { notified: fired })
+    return crossed.length > 0 ? { text: notify.noticeText(f, n, crossed, t), crossed } : undefined
+  })
+  notifyChain = run.catch(() => undefined)
+  return run
+}
+
+/** A note that never reached the model (the prompt was dropped): its thresholds fire again next time. */
+async function unfire($: $, crossed: string[]): Promise<void> {
+  await update($, meta, m => ({ ...(m ?? {}), notified: (m?.notified ?? []).filter(k => !crossed.includes(k)) }))
+}
+
+const THRESHOLD_KIND: Record<string, 'context' | 'fiveHour'> = { context: 'context', '5h': 'fiveHour', '5-hour': 'fiveHour' }
+
+/** Strips one pair of surrounding quotes, as typed in `/drain notify text context 35 "stop"`. */
+function unquote(s: string): string {
+  const t = s.trim()
+  return t.length >= 2 && ((t[0] === '"' && t.endsWith('"')) || (t[0] === "'" && t.endsWith("'"))) ? t.slice(1, -1) : t
+}
+
+async function notifyCommand($: $, args: string): Promise<string> {
+  const words = args.trim().split(/\s+/).filter(w => w !== '')
+  const sub = (words[0] ?? '').toLowerCase()
+  const saved = notify.sanitize((await getPrefs($)).notify)
+  const m = await getMeta($)
+  const save = async (change: Partial<DrainNotify>) => {
+    await setPrefs($, { notify: { ...saved, ...change } })
+  }
+  const envNote = m.notifyEnv ? ` This run follows ${notify.ENV_NAME}, which overrides the saved settings until it ends.` : ''
+  if (sub === '') {
+    const n = await notifySettings($)
+    const usage = await $.session.usage()
+    const now = notify.factsLine(notify.figures(usage.context, core.limitsFrom(usage.rateLimits)), n, await nowS($))
+    return [...notify.describe(n, m.notifyEnv !== undefined, m.notifyEnvError, m.notified ?? [], now), 'Change with /drain notify on|off, context <n..>, 5h <n..>, week on|off, margin <n>, text <kind> [n] "<text>".'].join('\n')
+  }
+  if (sub === 'on' || sub === 'off') {
+    await save({ on: sub === 'on' })
+    return sub === 'on'
+      ? `Self-notice on: when this session crosses a threshold, the model gets one line of facts with the next prompt or tool result. /drain notify shows the thresholds.${envNote}`
+      : `Self-notice off.${envNote}`
+  }
+  const kind = THRESHOLD_KIND[sub]
+  if (kind) {
+    const rest = words.slice(1)
+    if (rest.length === 1 && rest[0]!.toLowerCase() === 'off') {
+      await save({ [kind]: [] })
+      return `${sub} thresholds off.${envNote}`
+    }
+    const nums = rest.map(w => Number(w.replace(/%$/, '')))
+    if (nums.length === 0 || nums.length > 10 || !nums.every(x => Number.isFinite(x) && x >= 0 && x <= 100)) {
+      return `Give up to ten percentages from 0 to 100, e.g. /drain notify ${sub} ${kind === 'context' ? '70 90' : '80 95'}, or /drain notify ${sub} off.`
+    }
+    const list = [...new Set(nums)].sort((a, b) => a - b)
+    await save({ [kind]: list })
+    return `${sub} thresholds: ${list.map(t => `${t}%`).join(', ')}.${saved.on ? '' : ' (The self-notice is off; /drain notify on turns it on.)'}${envNote}`
+  }
+  if (sub === 'week') {
+    const v = (words[1] ?? '').toLowerCase()
+    if (v !== 'on' && v !== 'off') return 'Use /drain notify week on or /drain notify week off.'
+    await save({ week: v === 'on' })
+    return v === 'on' ? `Weekly pace threshold on: fires when the week's use passes the pace line (plus ${saved.margin} points).${envNote}` : `Weekly pace threshold off.${envNote}`
+  }
+  if (sub === 'margin') {
+    const n = Number(words[1])
+    if (words.length !== 2 || !Number.isFinite(n) || Math.abs(n) > 100) return 'Give the margin in points, e.g. /drain notify margin 5.'
+    await save({ margin: n })
+    return `Pace line margin: ${n} points.${envNote}`
+  }
+  if (sub === 'text') {
+    // text context 35 "..." | text 5h 80 "..." | text week "..."; no text clears it.
+    const k = (words[1] ?? '').toLowerCase()
+    const tk = THRESHOLD_KIND[k]
+    let key: string
+    let restStart: number
+    if (k === 'week') {
+      key = 'week'
+      restStart = 2
+    } else if (tk && words[2] !== undefined && Number.isFinite(Number(words[2]))) {
+      key = `${tk === 'context' ? 'context' : '5h'}:${Number(words[2])}`
+      restStart = 3
+    } else {
+      return 'Use /drain notify text context 35 "your text", /drain notify text 5h 80 "your text" or /drain notify text week "your text". Leave the text out to clear it.'
+    }
+    const text = unquote(args.trim().split(/\s+/).slice(restStart).join(' '))
+    const next = { ...saved.text }
+    if (text === '') delete next[key]
+    else next[key] = text
+    await save({ text: next })
+    const label = key.replace(':', ' ')
+    if (text === '') return `Text for ${label} cleared.${envNote}`
+    const configured = key === 'week' ? saved.week : key.startsWith('context:') ? saved.context.includes(Number(key.slice(8))) : saved.fiveHour.includes(Number(key.slice(3)))
+    return `When ${label} fires, the note adds: ${text}${configured ? '' : ` (No ${label} threshold is set yet.)`}${envNote}`
+  }
+  return 'Unknown /drain notify option. Use /drain notify on|off, context <n..>, 5h <n..>, week on|off, margin <n>, text <kind> [n] "<text>", or /drain notify to show the settings.'
+}
+
 // ---------------------------------------------------------------- /drain
 
 const SAMPLE: DrainReading = {
@@ -533,6 +655,8 @@ async function runCommand($: $, args: string): Promise<string> {
       await refreshAgentsOnce($)
       return agentBars.agentText((await read($, agents))?.agents ?? [], await $.clock.now())
     }
+    case 'notify':
+      return notifyCommand($, args.trim().slice(first.length))
     case '':
     case 'report': {
       const p = await getPrefs($)
@@ -543,7 +667,7 @@ async function runCommand($: $, args: string): Promise<string> {
       lines.push(...core.ledgerReport(await misses($), await nowS($)))
       lines.push('Cost is the session ledger\'s measured rise over the turn that opened cold; misses before a cost reading have none.')
       lines.push('')
-      lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'} · agents ${p.agents ? 'on' : 'off'}`)
+      lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'} · agents ${p.agents ? 'on' : 'off'} · notify ${(await notifySettings($)).on ? 'on' : 'off'}`)
       if (!m.interactive) lines.push('Session file: not written (not an interactive session)')
       else lines.push(`Session file: ${dir}${m.shadow ? ' (shadow copy: the bridge is still the status line, so its directory is left alone)' : ''}`)
       lines.push('More: /drain help')
@@ -560,7 +684,7 @@ async function setup($: $): Promise<void> {
   await $.command.register({
     name: 'drain',
     description: 'Brain Drain: cache-miss report, display styles, expiry alert',
-    argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off|agents on|off]',
+    argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off|agents on|off|notify ...]',
     immediate: true,
   })
 
@@ -569,7 +693,11 @@ async function setup($: $): Promise<void> {
   if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
   if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
   p.agents = p.agents === true
+  p.notify = notify.sanitize(p.notify)
   await update($, prefs, () => p)
+  const env = notify.parseEnv(await $.env.get('BRAIN_DRAIN_NOTIFY'))
+  await patchMeta($, { notifyEnv: env.value, notifyEnvError: env.error })
+  if (env.error) $.ui.log(`brain-drain: ${env.error}`, { to: 'debug' })
 
   const home = await $.env.get('HOME')
   const where = home ? await chooseOutDir($, home) : { outDir: undefined, shadow: false }
@@ -771,12 +899,34 @@ export const register: Register = on => {
     return box
   })
 
+  // The self-notice rides on the prompt (attached on the way down) and on a
+  // main-loop tool result, so a long run with no new prompt still hears it.
   on('prompt.submit', async ($, e, next) => {
     if (lastDrafting !== false) {
       lastDrafting = false
       await update($, drafting, () => false).catch(() => undefined)
     }
-    return next(e)
+    const note = await takeNotice($).catch(err => {
+      $.ui.log(`brain-drain: notify: ${String(err)}`, { to: 'debug' })
+      return undefined
+    })
+    if (!note) return next(e)
+    const result = await next({ ...e, context: [...(e.context ?? []), note.text] })
+    if (result.drop !== undefined) await unfire($, note.crossed).catch(() => undefined)
+    return result
+  })
+
+  // Subagents' calls (agentId set) and a plugin's own $.tool.call (no context reaches a model there) pass untouched.
+  on('tool.call', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId !== undefined || next.origin.plugin !== 'engine' || result.deny !== undefined) return result
+    try {
+      const note = await takeNotice($)
+      if (note) return { ...result, context: [...(result.context ?? []), note.text] }
+    } catch (err) {
+      $.ui.log(`brain-drain: notify: ${String(err)}`, { to: 'debug' })
+    }
+    return result
   })
 
   on('command.run', { command: 'drain' }, async ($, e) => ({ text: await runCommand($, e.args) }))

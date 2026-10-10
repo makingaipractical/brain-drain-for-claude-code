@@ -551,5 +551,11 @@ export const HELP = [
   '/drain sound on|off   play a short chime with the alert (off by default)',
   '/drain agents on|off  prototype: one token bar per subagent under the gauge (off by default)',
   '/drain agents         the subagent rows as text',
+  '/drain notify on|off  self-notice: one line of facts to the model when a threshold is crossed (off by default)',
+  '/drain notify         the self-notice settings and the note as it would read now',
+  '/drain notify context 70 90 | 5h 80 95 | week on|off | margin 5   thresholds (each list replaces the last; off clears)',
+  '/drain notify text context 35 "your text"   your own words after the facts when that threshold fires',
+  '                      (text 5h 80 "...", text week "..."; no text clears it)',
+  '                      BRAIN_DRAIN_NOTIFY in the environment overrides these for one run (see the README)',
   '/drain help           this list',
 ]
