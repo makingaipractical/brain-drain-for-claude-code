@@ -1,9 +1,9 @@
 // Pure logic: no `$`, so the tests call it directly. register.tsx wires it to events.
-import type { FuelLimit, FuelMiss, FuelReading, FuelStyle } from '../types'
+import type { DrainLimit, DrainMiss, DrainReading, DrainStyle } from '../types'
 
-export const STYLES: readonly FuelStyle[] = ['minimal', 'bars', 'gauge', 'compact', 'line', 'off']
-export const BAND_STYLES: readonly FuelStyle[] = ['minimal', 'bars', 'gauge', 'compact']
-export const DEFAULT_STYLE: FuelStyle = 'bars'
+export const STYLES: readonly DrainStyle[] = ['minimal', 'bars', 'gauge', 'compact', 'line', 'off']
+export const BAND_STYLES: readonly DrainStyle[] = ['minimal', 'bars', 'gauge', 'compact']
+export const DEFAULT_STYLE: DrainStyle = 'bars'
 export const DEFAULT_TTL = 300
 
 // Theme keys, so the light, dark and colour-blind themes each pick a readable shade.
@@ -24,17 +24,17 @@ export const MIN_MISS_TOKENS = 2000
 
 export const TAIL_WINDOWS = [65536, 262144, 1048576] as const
 
-export function isStyle(s: string): s is FuelStyle {
+export function isStyle(s: string): s is DrainStyle {
   return (STYLES as readonly string[]).includes(s)
 }
 
-export function isBandStyle(s: FuelStyle): boolean {
+export function isBandStyle(s: DrainStyle): boolean {
   return BAND_STYLES.includes(s)
 }
 
 // ---------------------------------------------------------------- colours
 
-export function isImplausible(r: Pick<FuelReading, 'percent' | 'tokens' | 'window'>): boolean {
+export function isImplausible(r: Pick<DrainReading, 'percent' | 'tokens' | 'window'>): boolean {
   if (r.window !== undefined && r.window > 0 && r.tokens !== undefined && r.tokens > r.window) return true
   return (r.percent ?? 0) > 100
 }
@@ -51,7 +51,7 @@ export type CacheState =
   | { kind: 'live'; left: number }
   | { kind: 'expired'; since: number }
 
-export function cacheState(r: Pick<FuelReading, 'lastApiS' | 'ttl'>, nowS: number): CacheState {
+export function cacheState(r: Pick<DrainReading, 'lastApiS' | 'ttl'>, nowS: number): CacheState {
   if (r.lastApiS === undefined || r.lastApiS <= 0) return { kind: 'none' }
   const left = Math.floor(r.lastApiS + r.ttl - nowS)
   if (left <= 0) return { kind: 'expired', since: -left }
@@ -123,7 +123,7 @@ export type View = {
   cold?: { tokens?: number }
 }
 
-export function makeView(r: FuelReading, nowS: number, drafting: boolean): View {
+export function makeView(r: DrainReading, nowS: number, drafting: boolean): View {
   const implausible = isImplausible(r)
   const ctxColor = contextColor(r.percent, r.unknown, implausible)
   const cache = cacheState(r, nowS)
@@ -276,7 +276,7 @@ function coldRows(v: View): Row[] {
 }
 
 /** The gauge row's candidates for a style, widest first. */
-function candidates(style: FuelStyle, v: View): Row[] {
+function candidates(style: DrainStyle, v: View): Row[] {
   switch (style) {
     case 'minimal':
       return [minimalRow(v, true), minimalRow(v, false), compactRow(v, true), compactRow(v, false)]
@@ -301,7 +301,7 @@ function fit(rows: Row[], cols: number | undefined): Row | undefined {
  * The band's rows for a style: the gauge row, and under it the cold-cache
  * warning while one applies. Narrower forms are picked when `cols` is tight.
  */
-export function renderRows(style: FuelStyle, v: View, cols?: number): Row[] {
+export function renderRows(style: DrainStyle, v: View, cols?: number): Row[] {
   const main = fit(candidates(style, v), cols)
   if (!main) return []
   const out: Row[] = [main]
@@ -329,7 +329,7 @@ export function lineText(v: View): string {
 }
 
 /** Text form of a style, for `/drain styles`. */
-export function styleText(style: FuelStyle, v: View): string {
+export function styleText(style: DrainStyle, v: View): string {
   if (style === 'line') return lineText(v)
   if (style === 'off') return '(nothing drawn; the session file is still written)'
   return renderRows(style, v).map(plain).join('\n')
@@ -408,7 +408,7 @@ export type StepUsage = { cache_read_input_tokens: number; cache_creation_input_
  * last request outran the TTL and the request re-wrote more than it read.
  */
 export function classifyStep(
-  prev: Pick<FuelReading, 'lastApiS' | 'observed' | 'ttl'>,
+  prev: Pick<DrainReading, 'lastApiS' | 'observed' | 'ttl'>,
   startS: number,
   usage: StepUsage,
 ): 'first' | 'warm' | 'miss' {
@@ -425,7 +425,7 @@ export function classifyStep(
  * request after more than five minutes cannot be on the five-minute tier.
  * Only when the transcript gave no answer.
  */
-export function warmGapUpgrade(prev: Pick<FuelReading, 'lastApiS' | 'observed' | 'ttl' | 'ttlSource'>, startS: number, usage: StepUsage): boolean {
+export function warmGapUpgrade(prev: Pick<DrainReading, 'lastApiS' | 'observed' | 'ttl' | 'ttlSource'>, startS: number, usage: StepUsage): boolean {
   if (prev.ttlSource === 'transcript' || prev.ttl >= 3600) return false
   if (!prev.observed || prev.lastApiS === undefined) return false
   return startS - prev.lastApiS > 310 && usage.cache_read_input_tokens > usage.cache_creation_input_tokens
@@ -441,7 +441,7 @@ function startOfLocalDayS(nowS: number): number {
   return Math.floor(d.getTime() / 1000)
 }
 
-function tally(list: FuelMiss[]): string {
+function tally(list: DrainMiss[]): string {
   if (list.length === 0) return 'no misses'
   const tokens = list.reduce((n, m) => n + m.tokens, 0)
   const priced = list.filter(m => typeof m.costUsd === 'number')
@@ -450,7 +450,7 @@ function tally(list: FuelMiss[]): string {
   return `${list.length} miss${list.length === 1 ? '' : 'es'} · ${fmtTokens(tokens)} tokens re-written · ${cost}`
 }
 
-export function ledgerReport(misses: FuelMiss[], nowS: number): string[] {
+export function ledgerReport(misses: DrainMiss[], nowS: number): string[] {
   const today = startOfLocalDayS(nowS)
   const week = nowS - 7 * 86400
   const lines = [
@@ -472,13 +472,13 @@ export function ledgerReport(misses: FuelMiss[], nowS: number): string[] {
 
 export type Ids = { sessionId: string; cwd: string; projectDir: string }
 
-function limitFields(limits: FuelLimit[], kind: string): { pct: number; reset: number } {
+function limitFields(limits: DrainLimit[], kind: string): { pct: number; reset: number } {
   const l = limits.find(x => x.kind === kind)
   return { pct: l ? l.pct : -1, reset: l?.resetsAt ?? 0 }
 }
 
 /** The bridge's session file, field for field, plus `writer: "mod"`. */
-export function sessionFile(r: FuelReading, ids: Ids, nowS: number): Record<string, unknown> {
+export function sessionFile(r: DrainReading, ids: Ids, nowS: number): Record<string, unknown> {
   const used = r.percent ?? 0
   const h5 = limitFields(r.rateLimits, 'five_hour')
   const d7 = limitFields(r.rateLimits, 'seven_day')
@@ -508,17 +508,17 @@ export function sessionFile(r: FuelReading, ids: Ids, nowS: number): Record<stri
   }
 }
 
-export function emptyReading(ttl = DEFAULT_TTL, source: FuelReading['ttlSource'] = 'default'): FuelReading {
+export function emptyReading(ttl = DEFAULT_TTL, source: DrainReading['ttlSource'] = 'default'): DrainReading {
   return { unknown: false, rateLimits: [], observed: false, ttl, ttlSource: source, cacheRead: 0, cacheCreate: 0, outputTokens: 0 }
 }
 
 /** A new session in the same process (/clear): the account's TTL, limits and the model carry over, nothing else. */
-export function freshSession(prev: FuelReading): FuelReading {
+export function freshSession(prev: DrainReading): DrainReading {
   return { ...emptyReading(prev.ttl, prev.ttlSource), rateLimits: prev.rateLimits, model: prev.model, effort: prev.effort, window: prev.window }
 }
 
 /** A reading restored from this mod's own earlier file (a resume or a fresh process). */
-export function readingFromFile(file: unknown, fallbackTtl: number, fallbackSource: FuelReading['ttlSource']): FuelReading | undefined {
+export function readingFromFile(file: unknown, fallbackTtl: number, fallbackSource: DrainReading['ttlSource']): DrainReading | undefined {
   if (typeof file !== 'object' || file === null) return undefined
   const f = file as Record<string, unknown>
   if (f.writer !== 'mod') return undefined
@@ -534,7 +534,7 @@ export function readingFromFile(file: unknown, fallbackTtl: number, fallbackSour
   return r
 }
 
-export function limitsFrom(list: readonly { kind: string; percentUsed: number; resetsAt?: string }[]): FuelLimit[] {
+export function limitsFrom(list: readonly { kind: string; percentUsed: number; resetsAt?: string }[]): DrainLimit[] {
   return list.map(l => {
     const t = l.resetsAt ? Date.parse(l.resetsAt) : NaN
     return Number.isFinite(t) ? { kind: l.kind, pct: l.percentUsed, resetsAt: Math.floor(t / 1000) } : { kind: l.kind, pct: l.percentUsed }

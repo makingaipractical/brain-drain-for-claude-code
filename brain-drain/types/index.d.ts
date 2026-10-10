@@ -1,14 +1,14 @@
-export type FuelStyle = 'minimal' | 'bars' | 'gauge' | 'compact' | 'line' | 'off'
+export type DrainStyle = 'minimal' | 'bars' | 'gauge' | 'compact' | 'line' | 'off'
 
-export type FuelLimit = { kind: string; pct: number; resetsAt?: number }
+export type DrainLimit = { kind: string; pct: number; resetsAt?: number }
 
-export type FuelReading = {
+export type DrainReading = {
   percent?: number
   tokens?: number
   window?: number
   /** Context fill not known since a compact or a resume: the last figure is held. */
   unknown: boolean
-  rateLimits: FuelLimit[]
+  rateLimits: DrainLimit[]
   model?: string
   effort?: string
   /** Epoch seconds of the last main-thread API response. */
@@ -23,11 +23,11 @@ export type FuelReading = {
   costUsd?: number
 }
 
-export type FuelPlace = 'below' | 'above'
+export type DrainPlace = 'below' | 'above'
 
-export type FuelPrefs = { style: FuelStyle; place: FuelPlace; warnSeconds: number; sound: boolean }
+export type DrainPrefs = { style: DrainStyle; place: DrainPlace; warnSeconds: number; sound: boolean }
 
-export type FuelMeta = {
+export type DrainMeta = {
   /** False under `claude -p` and the SDK: no session file then, as the bridge writes none. */
   interactive?: boolean
   /** The session the reading belongs to; /clear, /resume and a fork change it. */
@@ -40,7 +40,7 @@ export type FuelMeta = {
   pendingMiss?: { key: string; costBefore: number }
 }
 
-export type FuelMiss = {
+export type DrainMiss = {
   at: number
   session: string
   project: string
@@ -53,12 +53,12 @@ export type FuelMiss = {
 declare module 'claude-code' {
   interface PluginState {
     'brain-drain': {
-      reading: FuelReading | null
-      prefs: FuelPrefs | null
+      reading: DrainReading | null
+      prefs: DrainPrefs | null
       drafting: boolean
       /** Turns begun and not yet complete; a subagent's leaves at its first request. */
       turns: string[] | null
-      meta: FuelMeta | null
+      meta: DrainMeta | null
     }
   }
 }

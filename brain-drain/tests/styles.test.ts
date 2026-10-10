@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'claude-code/testing'
 import * as core from '../hooks/core.ts'
-import type { FuelReading } from '../types'
+import type { DrainReading } from '../types'
 
 const NOW = 2_000_000_000
-const base: FuelReading = {
+const base: DrainReading = {
   ...core.emptyReading(3600, 'transcript'),
   percent: 16, tokens: 160000, window: 1000000,
   rateLimits: [{ kind: 'five_hour', pct: 95 }, { kind: 'seven_day', pct: 44 }],
   model: 'claude-opus-5-5', effort: 'medium', lastApiS: NOW - 2, observed: true,
 }
-const view = (r: Partial<FuelReading> = {}, drafting = false) => core.makeView({ ...base, ...r }, NOW, drafting)
+const view = (r: Partial<DrainReading> = {}, drafting = false) => core.makeView({ ...base, ...r }, NOW, drafting)
 
 describe('styles', () => {
   test('minimal', () => {

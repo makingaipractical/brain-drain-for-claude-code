@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import * as core from './core.ts'
-import type { FuelMeta, FuelMiss, FuelPrefs, FuelReading } from '../types'
+import type { DrainMeta, DrainMiss, DrainPrefs, DrainReading } from '../types'
 
 // Brain Drain, the mod: the data source for the VS Code extension (the bridge's
 // session file) and a coloured band above the prompt. Never calls a model,
@@ -14,7 +14,7 @@ const drafting = atom({ plugin: 'brain-drain', key: 'drafting' } as const, false
 const turns = atom({ plugin: 'brain-drain', key: 'turns' } as const, null)
 const meta = atom({ plugin: 'brain-drain', key: 'meta' } as const, null)
 
-const DEFAULT_PREFS: FuelPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false }
+const DEFAULT_PREFS: DrainPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false }
 const CHIME = 'assets/chime.wav'
 const MISS_RETENTION_S = 60 * 86400
 
@@ -24,26 +24,26 @@ async function nowS($: $): Promise<number> {
   return (await $.clock.now()) / 1000
 }
 
-async function getPrefs($: $): Promise<FuelPrefs> {
+async function getPrefs($: $): Promise<DrainPrefs> {
   return (await read($, prefs)) ?? DEFAULT_PREFS
 }
 
-async function setPrefs($: $, change: Partial<FuelPrefs>): Promise<FuelPrefs> {
+async function setPrefs($: $, change: Partial<DrainPrefs>): Promise<DrainPrefs> {
   const next = { ...(await getPrefs($)), ...change }
   await update($, prefs, () => next)
   await $.store.set('prefs', next)
   return next
 }
 
-async function getMeta($: $): Promise<FuelMeta> {
+async function getMeta($: $): Promise<DrainMeta> {
   return (await read($, meta)) ?? {}
 }
 
-async function patchMeta($: $, change: Partial<FuelMeta>): Promise<void> {
+async function patchMeta($: $, change: Partial<DrainMeta>): Promise<void> {
   await update($, meta, m => ({ ...(m ?? {}), ...change }))
 }
 
-async function patchReading($: $, fn: (r: FuelReading) => FuelReading): Promise<FuelReading> {
+async function patchReading($: $, fn: (r: DrainReading) => DrainReading): Promise<DrainReading> {
   let out = core.emptyReading()
   await update($, reading, r => {
     out = fn(r ?? core.emptyReading())
@@ -143,7 +143,7 @@ async function refreshOutDir($: $): Promise<void> {
   if (where.outDir !== m.outDir) await patchMeta($, where)
 }
 
-async function accountTtl($: $, m: FuelMeta): Promise<number | undefined> {
+async function accountTtl($: $, m: DrainMeta): Promise<number | undefined> {
   const paths = [`${m.outDir}/account_ttl.json`]
   if (m.home && m.shadow) paths.push(`${m.home}/${core.PRIMARY_DIR}/account_ttl.json`)
   for (const p of paths) {
@@ -159,7 +159,7 @@ const SESSION_MAX_AGE_MS = 36 * 3600_000
 const TMP_MAX_AGE_MS = 3600_000
 const META_FILES = new Set(['account_ttl.json', 'config.json'])
 
-async function pruneShadow($: $, m: FuelMeta): Promise<void> {
+async function pruneShadow($: $, m: DrainMeta): Promise<void> {
   if (!m.shadow || !m.interactive || !m.outDir || !canMove) return
   const now = await $.clock.now()
   const stale: string[] = []
@@ -241,7 +241,7 @@ async function dropTurn($: $, turnId: string): Promise<void> {
 
 let lastStatus: string | undefined
 
-async function currentView($: $): Promise<{ view: core.View; r: FuelReading } | undefined> {
+async function currentView($: $): Promise<{ view: core.View; r: DrainReading } | undefined> {
   const r = await read($, reading)
   if (!r) return undefined
   return { view: core.makeView(r, await nowS($), await read($, drafting)), r }
@@ -281,11 +281,11 @@ async function tick($: $): Promise<void> {
 
 // ---------------------------------------------------------------- the ledger
 
-async function misses($: $): Promise<FuelMiss[]> {
-  const out: FuelMiss[] = []
+async function misses($: $): Promise<DrainMiss[]> {
+  const out: DrainMiss[] = []
   for (const key of await $.store.keys()) {
     if (!key.startsWith('miss:')) continue
-    const v = (await $.store.get(key)) as FuelMiss | undefined
+    const v = (await $.store.get(key)) as DrainMiss | undefined
     if (v && typeof v.at === 'number') out.push(v)
   }
   return out
@@ -302,7 +302,7 @@ async function pruneMisses($: $): Promise<void> {
 
 // ---------------------------------------------------------------- /drain
 
-const SAMPLE: FuelReading = {
+const SAMPLE: DrainReading = {
   ...core.emptyReading(3600, 'transcript'),
   percent: 31,
   tokens: 312000,
@@ -411,8 +411,8 @@ async function setup($: $): Promise<void> {
     immediate: true,
   })
 
-  const stored = (await $.store.get('prefs')) as Partial<FuelPrefs> | undefined
-  const p: FuelPrefs = { ...DEFAULT_PREFS, ...(stored ?? {}) }
+  const stored = (await $.store.get('prefs')) as Partial<DrainPrefs> | undefined
+  const p: DrainPrefs = { ...DEFAULT_PREFS, ...(stored ?? {}) }
   if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
   if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
   await update($, prefs, () => p)
@@ -447,7 +447,7 @@ async function setup($: $): Promise<void> {
   })
 }
 
-function applyContext(r: FuelReading, c: { tokens?: number; window: number; percent?: number }): FuelReading {
+function applyContext(r: DrainReading, c: { tokens?: number; window: number; percent?: number }): DrainReading {
   if (c.tokens === undefined) {
     // A fresh session has no fill yet. After a compact (or on a resume) the
     // fill is not known: hold the last figure and flag it, as the bridge does.
@@ -518,7 +518,7 @@ export const register: Register = on => {
           const sessionId = await $.session.id()
           const root = await $.session.root()
           const key = core.missKey(startMs, sessionId)
-          const miss: FuelMiss = {
+          const miss: DrainMiss = {
             at: Math.floor(startS),
             session: sessionId,
             project: root.split('/').pop() ?? '',
@@ -550,7 +550,7 @@ export const register: Register = on => {
       const m = await getMeta($)
       if (m.pendingMiss && e.cost && e.changed.includes('cost')) {
         const pending = m.pendingMiss
-        const stored = (await $.store.get(pending.key)) as FuelMiss | undefined
+        const stored = (await $.store.get(pending.key)) as DrainMiss | undefined
         if (stored) await $.store.set(pending.key, { ...stored, costUsd: e.cost.usd - pending.costBefore })
         await patchMeta($, { pendingMiss: undefined })
       }
@@ -659,7 +659,7 @@ export const register: Register = on => {
 }
 
 /** The rows to draw, or undefined to draw nothing. Callers swallow a throw (a state read refused mid-unload) and pass the other rows through. */
-async function gaugeRows($: $, p: FuelPrefs | null, cols: number | undefined): Promise<core.Row[] | undefined> {
+async function gaugeRows($: $, p: DrainPrefs | null, cols: number | undefined): Promise<core.Row[] | undefined> {
   const style = p?.style ?? core.DEFAULT_STYLE
   if (!core.isBandStyle(style)) return undefined
   const r = await read($, reading)
