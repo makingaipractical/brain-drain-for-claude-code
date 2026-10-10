@@ -19,6 +19,8 @@ export type World = {
   sid: string
   settings: unknown
   context: { tokens?: number; window: number; percent?: number }
+  /** What `$.session.usage()` answers for the 5h and weekly windows; a test may change it. */
+  rateLimits: SessionRateLimit[]
   mtimes: Map<string, number>
   surfaces: string[]
   /** Most characters one `tail -c +N` answers, as the engine caps stdout at 4 MiB. */
@@ -37,6 +39,8 @@ export type WorldOptions = {
   noProcess?: boolean
   /** Every `mv` exits 1, as when the target directory is not writable. */
   mvFails?: boolean
+  /** Environment beyond HOME. */
+  env?: Record<string, string>
 }
 
 export function world(on: On, o: WorldOptions = {}): World {
@@ -50,11 +54,12 @@ export function world(on: On, o: WorldOptions = {}): World {
     sid: SID,
     settings: o.settings ?? {},
     context: o.context ?? { window: 1000000 },
+    rateLimits: o.rateLimits ?? [],
     mtimes: new Map(),
     surfaces: ['terminal'],
     tailCap: 4 * 1024 * 1024,
   }
-  mock.env(on, { HOME })
+  mock.env(on, { HOME, ...(o.env ?? {}) })
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.set', ($, e) => {
     w.store.set(e.key, JSON.parse(JSON.stringify(e.value)))
@@ -128,7 +133,7 @@ export function world(on: On, o: WorldOptions = {}): World {
   on('session.cwd', () => ({ value: ROOT }))
   on('session.root', () => ({ value: ROOT }))
   on('session.usage', () => ({
-    value: { startedAt: 0, context: w.context, rateLimits: o.rateLimits ?? [], cost: { usd: 0 } },
+    value: { startedAt: 0, context: w.context, rateLimits: w.rateLimits, cost: { usd: 0 } },
   }))
   on('session.start', ($, e) => ({ cwd: e.cwd }))
   on('command.register', ($, e) => ({ value: { command: e.name } }))
