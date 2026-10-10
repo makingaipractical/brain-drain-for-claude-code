@@ -195,28 +195,32 @@ test('off by default; on, it reads every agent once, then only what each file ga
   expect((w.store.get('prefs') as { agents: boolean }).agents).toBe(false)
 })
 
-test('a file longer than one read catches up over several reads, whole lines only', async ($, on) => {
+test('the first read takes the file whole; an addition longer than one tail catches up over several, whole lines only', async ($, on) => {
   const w = await boot($, on)
-  w.tailCap = 500
   await $.command.run(cmd('agents on'))
+  expect(w.runs.filter(r => r[0] === 'tail' && r[2]?.startsWith('+'))).toHaveLength(0)
+  const path = `${DIR}/agent-aexec-1.jsonl`
+  w.files.set(path, w.files.get(path)! + lines(rec('B', 0, 0, 1000, 10), rec('C', 0, 0, 1000, 10), rec('D', 0, 0, 1000, 10)))
+  w.tailCap = 500
+  await w.clock.advance(5000)
+  await settle()
+  expect(w.runs.filter(r => r[0] === 'tail' && r[3] === path).length).toBeGreaterThan(1)
   const ui = await $.ui.mount(HINT as never)
-  const rows = await ourRows(ui as never)
-  expect(rows[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 6k  out 400  opus·high')
+  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 9k  out 430  opus·high')
   await ui.unmount()
-  expect(w.runs.filter(r => r[0] === 'tail' && r[3]?.endsWith('aexec-1.jsonl')).length).toBeGreaterThan(1)
 })
 
 test('a line longer than one read is passed over, not stalled on', async ($, on) => {
   const w = await boot($, on)
   const path = `${DIR}/agent-aexec-1.jsonl`
-  const huge = JSON.stringify({ type: 'user', message: { content: 'x'.repeat(2000) } })
-  w.files.set(path, lines(huge, rec('A', 0, 1000, 5000, 400)))
-  w.tailCap = 500
   await $.command.run(cmd('agents on'))
+  const huge = JSON.stringify({ type: 'user', message: { content: 'x'.repeat(2000) } })
+  w.files.set(path, w.files.get(path)! + lines(huge, rec('B', 0, 0, 1000, 10)))
+  w.tailCap = 500
   await w.clock.advance(5000)
   await settle()
   const ui = await $.ui.mount(HINT as never)
-  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 6k  out 400  opus·high')
+  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 7k  out 410  opus·high')
   await ui.unmount()
 })
 

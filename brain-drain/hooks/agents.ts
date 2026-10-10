@@ -16,7 +16,7 @@ export const MAX_ROWS = 5
  * One transcript's running count. A response is written as one record per content
  * block, each carrying the response's usage; the input fields repeat and
  * `output_tokens` grows to its final figure on the last block. So each response is
- * counted once, by `message.id`, and its latest record wins.
+ * counted once, by `message.id`, with the largest output count seen.
  */
 export type Acc = {
   /** Bytes of the file consumed: always just past a newline. */
@@ -66,10 +66,12 @@ function take(acc: Acc, line: string): void {
   const u = m.usage
   if (typeof u !== 'object' || u === null || m.model === '<synthetic>') return
   const input = num(u.input_tokens) + num(u.cache_creation_input_tokens) + num(u.cache_read_input_tokens)
-  const out = num(u.output_tokens)
+  let out = num(u.output_tokens)
   const key = typeof m.id === 'string' ? m.id : typeof r.requestId === 'string' ? r.requestId : typeof r.uuid === 'string' ? r.uuid : undefined
   const prev = key === undefined ? undefined : acc.seen[key]
   if (prev) {
+    // The count only grows over a response's blocks; a lower one is never the final figure.
+    out = Math.max(out, prev[1])
     acc.tokens -= prev[0] + prev[1]
     acc.output -= prev[1]
   } else acc.requests++

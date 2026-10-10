@@ -244,7 +244,7 @@ async function dropTurn($: $, turnId: string): Promise<void> {
 
 // Read on a timer, never while drawing: the rows draw from `agents` in $.state.
 const AGENT_REFRESH_MS = 5000
-/** Each `tail` answers at most 4 MiB; a long file catches up over several reads. */
+/** Each `tail` answers at most 4 MiB; a long addition catches up over several reads. */
 const READS_PER_FILE = 8
 const WHOLE_READ_MAX = 16 * 1024 * 1024
 
@@ -282,7 +282,8 @@ async function agentFiles($: $, dir: string): Promise<{ path: string; size: numb
 async function readNew($: $, path: string, t: Tracked, size: number): Promise<void> {
   if (size < t.acc.offset) t.acc = agentBars.newAcc() // replaced, not appended to
   if (size === t.acc.offset) return
-  if (canMove) {
+  // The first read takes the file whole, one call and no process; a host command reads only what each later refresh adds.
+  if (canMove && (t.acc.offset > 0 || size > WHOLE_READ_MAX)) {
     try {
       for (let i = 0; i < READS_PER_FILE && t.acc.offset < size; i++) {
         const before = t.acc.offset
