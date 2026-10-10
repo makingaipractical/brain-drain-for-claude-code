@@ -74,7 +74,7 @@ test('/drain style switches live and persists; line uses the status line', async
   const r = await $.command.run({ command: 'drain', args: 'style line', origin: { kind: 'composer' } as never, presentation: {} as never })
   expect(r.text).toContain('Style: line')
   expect(w.store.get('prefs')).toMatchObject({ style: 'line' })
-  expect(w.status.at(-1)).toContain('⛽ 31%')
+  expect(w.status.at(-1)).toContain('🧠 31%')
   let ui = await $.ui.mount({ ...BAND(), surface: 'terminal' })
   expect((await rows(ui)).gauge).toBeUndefined()
   await ui.unmount()

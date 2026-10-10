@@ -143,9 +143,9 @@ export function makeView(r: DrainReading, nowS: number, drafting: boolean): View
 export type Seg = { text: string; color?: string; dim?: boolean; bold?: boolean }
 export type Row = Seg[]
 
-const WIDE = new Set(['⛽'])
+const WIDE = new Set(['🧠'])
 
-/** Terminal cells a string takes; the pump glyph is a wide character. */
+/** Terminal cells a string takes; the brain glyph is a wide character. */
 export function cellWidth(s: string): number {
   let n = 0
   for (const ch of s) n += WIDE.has(ch) ? 2 : 1
@@ -199,7 +199,7 @@ export function bar(fraction: number, cells: number, color: string | undefined):
 }
 
 function minimalRow(v: View, withModel: boolean): Row {
-  const groups: Row[] = [[{ text: '⛽ ' }, { text: pctText(v), color: v.ctx.color, bold: true }]]
+  const groups: Row[] = [[{ text: '🧠 ' }, { text: pctText(v), color: v.ctx.color, bold: true }]]
   const c = cacheText(v)
   if (c) groups.push([{ text: '◷ ', dim: true }, { text: c, color: v.cache.color }])
   groups.push(limitsGroup(v, ' · ', true))
@@ -255,7 +255,7 @@ function gaugeRow(v: View, withModel: boolean, track: number): Row {
 }
 
 function compactRow(v: View, withLimits: boolean): Row {
-  const row: Row = [{ text: '⛽' }, { text: pctText(v), color: v.ctx.color, bold: true }]
+  const row: Row = [{ text: '🧠' }, { text: pctText(v), color: v.ctx.color, bold: true }]
   const c = cacheText(v)
   if (c) row.push({ text: ' ◷', dim: true }, { text: v.cache.kind === 'expired' ? 'exp' : c, color: v.cache.color })
   if (withLimits) {
@@ -315,7 +315,7 @@ export function renderRows(style: DrainStyle, v: View, cols?: number): Row[] {
 
 /** The `line` style: one plain line for `$.ui.status`, which takes no colour. */
 export function lineText(v: View): string {
-  const parts = [`⛽ ${pctText(v)}`]
+  const parts = [`🧠 ${pctText(v)}`]
   const c = cacheText(v)
   if (c) parts.push(v.cache.kind === 'expired' ? 'cache expired' : `cache ${c}`)
   for (const l of v.limits) parts.push(`${l.label} ${Math.round(l.pct)}%`)

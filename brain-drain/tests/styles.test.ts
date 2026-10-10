@@ -13,7 +13,7 @@ const view = (r: Partial<DrainReading> = {}, drafting = false) => core.makeView(
 
 describe('styles', () => {
   test('minimal', () => {
-    expect(core.styleText('minimal', view())).toBe('⛽ 16% │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium')
+    expect(core.styleText('minimal', view())).toBe('🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium')
   })
   test('bars', () => {
     expect(core.styleText('bars', view())).toBe('ctx ▰▰▱▱▱▱▱▱▱▱ 16% │ cache ▰▰▰▰▰▰▰▰▰▰ 59:58 │ 5h ▰▰▰▰▰ 95%  wk ▰▰▱▱▱ 44% │ opus·medium')
@@ -22,26 +22,26 @@ describe('styles', () => {
     expect(core.styleText('gauge', view())).toBe('E ━━━━━━━━━━━━━◆── F 84% left │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium')
   })
   test('compact', () => {
-    expect(core.styleText('compact', view())).toBe('⛽16% ◷59:58 5h95 wk44')
+    expect(core.styleText('compact', view())).toBe('🧠16% ◷59:58 5h95 wk44')
   })
   test('line', () => {
-    expect(core.styleText('line', view())).toBe('⛽ 16% · cache 59:58 · 5h 95% · wk 44% · opus·medium')
+    expect(core.styleText('line', view())).toBe('🧠 16% · cache 59:58 · 5h 95% · wk 44% · opus·medium')
   })
   test('off draws nothing', () => {
     expect(core.renderRows('off', view())).toHaveLength(0)
     expect(core.renderRows('line', view())).toHaveLength(0)
   })
   test('no cache yet, no limits', () => {
-    expect(core.styleText('minimal', view({ lastApiS: undefined, rateLimits: [] }))).toBe('⛽ 16% │ opus·medium')
+    expect(core.styleText('minimal', view({ lastApiS: undefined, rateLimits: [] }))).toBe('🧠 16% │ opus·medium')
   })
   test('narrow width degrades to compact', () => {
     const rows = core.renderRows('bars', view(), 30)
-    expect(core.plain(rows[0]!)).toBe('⛽16% ◷59:58 5h95 wk44')
+    expect(core.plain(rows[0]!)).toBe('🧠16% ◷59:58 5h95 wk44')
     const mid = core.renderRows('minimal', view(), 40)
-    expect(core.plain(mid[0]!)).toBe('⛽ 16% │ ◷ 59:58 │ 5h 95% · wk 44%')
+    expect(core.plain(mid[0]!)).toBe('🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44%')
   })
-  test('the pump glyph counts two cells', () => {
-    expect(core.cellWidth('⛽1')).toBe(3)
+  test('the brain glyph counts two cells', () => {
+    expect(core.cellWidth('🧠1')).toBe(3)
   })
 })
 
@@ -55,10 +55,10 @@ describe('colours', () => {
   test('unknown and implausible are uncoloured and marked', () => {
     const u = view({ unknown: true })
     expect(u.ctx.color).toBeUndefined()
-    expect(core.styleText('compact', u)).toStartWith('⛽~16%')
+    expect(core.styleText('compact', u)).toStartWith('🧠~16%')
     const i = view({ tokens: 1200000, window: 1000000, percent: 120 })
     expect(i.ctx.color).toBeUndefined()
-    expect(core.styleText('minimal', i)).toStartWith('⛽ ⚠ 120%')
+    expect(core.styleText('minimal', i)).toStartWith('🧠 ⚠ 120%')
   })
   test('cache inherits context colour above 60 s, then yellow, red, expired', () => {
     expect(view({ percent: 65, lastApiS: NOW - 3600 + 61 }).cache.color).toBe('warning')
