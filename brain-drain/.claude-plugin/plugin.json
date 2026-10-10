@@ -2,7 +2,7 @@
   "name": "brain-drain",
   "displayName": "Brain Drain for Claude Code",
   "version": "0.1.0",
-  "description": "Context fill, exact cache countdown, rate limits and model/effort in a coloured band above the prompt; writes the session file the Fuel Gauge VS Code extension reads.",
+  "description": "Context fill, exact cache countdown, rate limits and model/effort in a coloured line under the prompt; writes the session file the Fuel Gauge VS Code extension reads.",
   "author": { "name": "MakingAIPractical" },
   "types": "./types/index.d.ts"
 }

@@ -5,7 +5,7 @@ import * as core from './core.ts'
 import type { DrainMeta, DrainMiss, DrainPrefs, DrainReading } from '../types'
 
 // Brain Drain, the mod: the data source for the VS Code extension (the bridge's
-// session file) and a coloured band above the prompt. Never calls a model,
+// session file) and a coloured line under the prompt (or above it, by choice). Never calls a model,
 // never compacts, never touches the prompt: every prompt hook passes through.
 
 const reading = atom({ plugin: 'brain-drain', key: 'reading' } as const, null)
