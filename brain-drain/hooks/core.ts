@@ -189,7 +189,7 @@ function limitsGroup(v: View, glue: string, withPct: boolean): Row {
   return g
 }
 
-function bar(fraction: number, cells: number, color: string | undefined): Row {
+export function bar(fraction: number, cells: number, color: string | undefined): Row {
   const f = Math.max(0, Math.min(1, fraction))
   const filled = Math.round(f * cells)
   const row: Row = []
@@ -549,5 +549,7 @@ export const HELP = [
   '/drain place below|above  draw under the prompt (default) or in the band above it',
   '/drain warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
   '/drain sound on|off   play a short chime with the alert (off by default)',
+  '/drain agents on|off  prototype: one token bar per subagent under the gauge (off by default)',
+  '/drain agents         the subagent rows as text',
   '/drain help           this list',
 ]

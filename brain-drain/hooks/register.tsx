@@ -1,8 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
+import * as agentBars from './agents.ts'
 import * as core from './core.ts'
-import type { DrainMeta, DrainMiss, DrainPrefs, DrainReading } from '../types'
+import type { DrainAgent, DrainAgents, DrainMeta, DrainMiss, DrainPrefs, DrainReading } from '../types'
 
 // Brain Drain, the mod: the data source for the VS Code extension (the bridge's
 // session file) and a coloured line under the prompt (or above it, by choice). Never calls a model,
@@ -13,8 +14,9 @@ const prefs = atom({ plugin: 'brain-drain', key: 'prefs' } as const, null)
 const drafting = atom({ plugin: 'brain-drain', key: 'drafting' } as const, false)
 const turns = atom({ plugin: 'brain-drain', key: 'turns' } as const, null)
 const meta = atom({ plugin: 'brain-drain', key: 'meta' } as const, null)
+const agents = atom({ plugin: 'brain-drain', key: 'agents' } as const, null)
 
-const DEFAULT_PREFS: DrainPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false }
+const DEFAULT_PREFS: DrainPrefs = { style: core.DEFAULT_STYLE, place: 'below', warnSeconds: 60, sound: false, agents: false }
 const CHIME = 'assets/chime.wav'
 const MISS_RETENTION_S = 60 * 86400
 
@@ -114,6 +116,7 @@ async function syncSession($: $): Promise<void> {
   const m = await getMeta($)
   if (m.sessionId === id) return
   await patchMeta($, { sessionId: id, alertedFor: undefined, pendingMiss: undefined })
+  await clearAgents($)
   const prev = await read($, reading)
   if (m.sessionId === undefined || !prev) return
   const own = m.outDir ? core.readingFromFile(await readJson($, `${m.outDir}/${id}.json`), prev.ttl, prev.ttlSource) : undefined
@@ -235,6 +238,139 @@ async function refreshTtl($: $): Promise<void> {
 async function dropTurn($: $, turnId: string): Promise<void> {
   if (!(await read($, turns))?.includes(turnId)) return
   await update($, turns, t => (t ?? []).filter(id => id !== turnId))
+}
+
+// ---------------------------------------------------------------- subagent token bars (prototype)
+
+// Read on a timer, never while drawing: the rows draw from `agents` in $.state.
+const AGENT_REFRESH_MS = 5000
+/** Each `tail` answers at most 4 MiB; a long file catches up over several reads. */
+const READS_PER_FILE = 8
+const WHOLE_READ_MAX = 16 * 1024 * 1024
+
+type Tracked = { acc: agentBars.Acc; label?: string }
+let agentDir: string | undefined
+let tracked = new Map<string, Tracked>()
+let agentBusy = false
+let lastAgentSig: string | undefined
+
+/** `<dir>/<sessionId>.jsonl` → `<dir>/<sessionId>/subagents`. */
+function subagentDir(transcriptPath: string): string | undefined {
+  return transcriptPath.endsWith('.jsonl') ? `${transcriptPath.slice(0, -'.jsonl'.length)}/subagents` : undefined
+}
+
+/** Agent transcripts: the directory's own, and a workflow's one level down in `workflows/<wf>/`. */
+async function agentFiles($: $, dir: string): Promise<{ path: string; size: number; mtimeMs: number }[]> {
+  const out: { path: string; size: number; mtimeMs: number }[] = []
+  const walk = async (d: string, depth: number): Promise<void> => {
+    let entries: { name: string; kind: string; size: number; mtimeMs: number }[]
+    try {
+      entries = await $.fs.list(d)
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      if (e.kind === 'file' && e.name.startsWith('agent-') && e.name.endsWith('.jsonl')) out.push({ path: `${d}/${e.name}`, size: e.size, mtimeMs: e.mtimeMs })
+      else if (e.kind === 'dir' && (depth === 0 ? e.name === 'workflows' : depth === 1)) await walk(`${d}/${e.name}`, depth + 1)
+    }
+  }
+  await walk(dir, 0)
+  return out
+}
+
+/** Reads what the file gained since the last refresh. */
+async function readNew($: $, path: string, t: Tracked, size: number): Promise<void> {
+  if (size < t.acc.offset) t.acc = agentBars.newAcc() // replaced, not appended to
+  if (size === t.acc.offset) return
+  if (canMove) {
+    try {
+      for (let i = 0; i < READS_PER_FILE && t.acc.offset < size; i++) {
+        const before = t.acc.offset
+        const r = await $.process.run(['tail', '-c', `+${before + 1}`, path], { timeoutMs: 5000 })
+        if (r.exitCode !== 0) return
+        agentBars.feed(t.acc, r.stdout, r.isStdoutTruncated)
+        if (!r.isStdoutTruncated || t.acc.offset === before) return
+      }
+      return
+    } catch {
+      // No host commands here: read the file whole instead.
+    }
+  }
+  if (size > WHOLE_READ_MAX) return
+  const acc = agentBars.newAcc()
+  agentBars.feed(acc, (await $.fs.read(path)) as string)
+  t.acc = acc
+}
+
+async function clearAgents($: $): Promise<void> {
+  agentDir = undefined
+  tracked = new Map()
+  lastAgentSig = undefined
+  if ((await read($, agents)) !== null) await update($, agents, () => null)
+}
+
+async function setAgents($: $, next: DrainAgents): Promise<void> {
+  // The guess moves with the clock, so it is part of what counts as a change.
+  const now = await $.clock.now()
+  const sig = JSON.stringify(next) + next.agents.map(a => agentBars.activity(a, now) ?? '').join(',')
+  if (sig === lastAgentSig) return
+  lastAgentSig = sig
+  await update($, agents, () => next)
+  $.ui.invalidate('ui.render')
+}
+
+async function refreshAgents($: $): Promise<void> {
+  if (!(await getPrefs($)).agents) return
+  const m = await getMeta($)
+  const dir = m.transcriptPath ? subagentDir(m.transcriptPath) : undefined
+  if (dir !== agentDir) {
+    await clearAgents($)
+    agentDir = dir
+  }
+  if (!dir || (await $.session.surfaces()).length === 0) return
+  const files = await agentFiles($, dir)
+  const status = new Map<string, string>()
+  try {
+    for (const a of await $.agent.list()) status.set(a.id, a.status)
+  } catch {
+    // No agent list here: the file's last write is the only clue.
+  }
+  const list: DrainAgent[] = []
+  for (const f of files) {
+    const id = f.path.slice(f.path.lastIndexOf('/') + 1 + 'agent-'.length, -'.jsonl'.length)
+    let t = tracked.get(f.path)
+    if (!t) tracked.set(f.path, (t = { acc: agentBars.newAcc() }))
+    if (t.label === undefined) {
+      const sidecar = await readJson($, `${f.path.slice(0, -'.jsonl'.length)}.meta.json`)
+      if (sidecar !== undefined) t.label = agentBars.labelFrom(sidecar, id)
+    }
+    try {
+      await readNew($, f.path, t, f.size)
+    } catch {
+      // unreadable this time; the next refresh tries again
+    }
+    const a = t.acc
+    if (a.requests === 0) continue
+    const st = status.get(id) ?? status.get(`agent-${id}`)
+    list.push({
+      id, label: t.label ?? id, tokens: a.tokens, output: a.output, requests: a.requests,
+      model: a.model, effort: a.effort, mtimeMs: f.mtimeMs, ...(st === undefined ? {} : { status: st }),
+    })
+  }
+  await setAgents($, { dir, agents: list })
+}
+
+/** One refresh at a time; a tick that finds one running skips. */
+async function refreshAgentsOnce($: $): Promise<void> {
+  if (agentBusy) return
+  agentBusy = true
+  try {
+    await refreshAgents($)
+  } catch (err) {
+    $.ui.log(`brain-drain: agents: ${String(err)}`, { to: 'debug' })
+  } finally {
+    agentBusy = false
+  }
 }
 
 // ---------------------------------------------------------------- display
@@ -380,6 +516,22 @@ async function runCommand($: $, args: string): Promise<string> {
       }
       return 'Sound off.'
     }
+    case 'agents': {
+      const v = arg.toLowerCase()
+      if (v === 'on' || v === 'off') {
+        await setPrefs($, { agents: v === 'on' })
+        if (v === 'on') await refreshAgentsOnce($)
+        else await clearAgents($)
+        $.ui.invalidate('ui.render')
+        return v === 'on'
+          ? 'Subagent bars on (prototype): one row per subagent of this session under the gauge. Tokens are each request\'s input + cache write + cache read + output; "running?" is a guess from the transcript\'s last write.'
+          : 'Subagent bars off.'
+      }
+      if (v !== '') return 'Use /drain agents on, /drain agents off, or /drain agents to list them.'
+      if (!(await getPrefs($)).agents) return 'Subagent bars are off. /drain agents on turns them on.'
+      await refreshAgentsOnce($)
+      return agentBars.agentText((await read($, agents))?.agents ?? [], await $.clock.now())
+    }
     case '':
     case 'report': {
       const p = await getPrefs($)
@@ -390,7 +542,7 @@ async function runCommand($: $, args: string): Promise<string> {
       lines.push(...core.ledgerReport(await misses($), await nowS($)))
       lines.push('Cost is the session ledger\'s measured rise over the turn that opened cold; misses before a cost reading have none.')
       lines.push('')
-      lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'}`)
+      lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'} · agents ${p.agents ? 'on' : 'off'}`)
       if (!m.interactive) lines.push('Session file: not written (not an interactive session)')
       else lines.push(`Session file: ${dir}${m.shadow ? ' (shadow copy: the bridge is still the status line, so its directory is left alone)' : ''}`)
       lines.push('More: /drain help')
@@ -407,7 +559,7 @@ async function setup($: $): Promise<void> {
   await $.command.register({
     name: 'drain',
     description: 'Brain Drain: cache-miss report, display styles, expiry alert',
-    argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off]',
+    argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off|agents on|off]',
     immediate: true,
   })
 
@@ -415,6 +567,7 @@ async function setup($: $): Promise<void> {
   const p: DrainPrefs = { ...DEFAULT_PREFS, ...(stored ?? {}) }
   if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
   if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
+  p.agents = p.agents === true
   await update($, prefs, () => p)
 
   const home = await $.env.get('HOME')
@@ -444,6 +597,9 @@ async function setup($: $): Promise<void> {
   await refreshStatusLine($)
   $.clock.every(1000, () => {
     void tick($).catch(() => undefined)
+  })
+  $.clock.every(AGENT_REFRESH_MS, () => {
+    void refreshAgentsOnce($)
   })
 }
 
@@ -665,13 +821,18 @@ async function gaugeRows($: $, p: DrainPrefs | null, cols: number | undefined): 
   const r = await read($, reading)
   if (!r) return undefined
   const view = core.makeView(r, await nowS($), await read($, drafting))
-  return core.renderRows(style, view, cols)
+  const rows = core.renderRows(style, view, cols)
+  if (p?.agents && rows.length > 0) {
+    const a = await read($, agents)
+    if (a && a.agents.length > 0) rows.push(...agentBars.agentRows(a.agents, await $.clock.now(), cols))
+  }
+  return rows
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function drawRows(Text: any, rows: core.Row[]) {
   return rows.map((row, i) => (
-    <Text key={i === 0 ? 'gauge' : 'cold'} wrap="truncate-end">
+    <Text key={i === 0 ? 'gauge' : `row-${i}`} wrap="truncate-end">
       {row.map(seg => (
         <Text color={seg.color} dimColor={seg.dim} bold={seg.bold}>
           {seg.text}

@@ -25,7 +25,33 @@ export type DrainReading = {
 
 export type DrainPlace = 'below' | 'above'
 
-export type DrainPrefs = { style: DrainStyle; place: DrainPlace; warnSeconds: number; sound: boolean }
+export type DrainPrefs = {
+  style: DrainStyle
+  place: DrainPlace
+  warnSeconds: number
+  sound: boolean
+  /** Prototype: per-subagent token bars under the gauge. Off unless asked for. */
+  agents: boolean
+}
+
+/** One subagent of this session, as its transcript adds up. */
+export type DrainAgent = {
+  /** The file's stem after `agent-`, as the engine names the agent. */
+  id: string
+  label: string
+  /** Every request's input + cache write + cache read + output, each response counted once. */
+  tokens: number
+  output: number
+  requests: number
+  model?: string
+  effort?: string
+  /** The transcript's last write, epoch milliseconds. */
+  mtimeMs: number
+  /** The engine's word for the agent (`$.agent.list()`), when it lists it. */
+  status?: string
+}
+
+export type DrainAgents = { dir: string; agents: DrainAgent[] }
 
 export type DrainMeta = {
   /** False under `claude -p` and the SDK: no session file then, as the bridge writes none. */
@@ -59,6 +85,7 @@ declare module 'claude-code' {
       /** Turns begun and not yet complete; a subagent's leaves at its first request. */
       turns: string[] | null
       meta: DrainMeta | null
+      agents: DrainAgents | null
     }
   }
 }
