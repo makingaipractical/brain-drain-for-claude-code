@@ -328,7 +328,7 @@ export function lineText(v: View): string {
   return text
 }
 
-/** Text form of a style, for `/fuel styles`. */
+/** Text form of a style, for `/drain styles`. */
 export function styleText(style: FuelStyle, v: View): string {
   if (style === 'line') return lineText(v)
   if (style === 'off') return '(nothing drawn; the session file is still written)'
@@ -542,12 +542,12 @@ export function limitsFrom(list: readonly { kind: string; percentUsed: number; r
 }
 
 export const HELP = [
-  '/fuel                 cache-miss report: today, last 7 days, tokens re-written, measured cost',
-  '/fuel styles          preview every display style with the current figures',
-  '/fuel <style>         switch style: minimal, bars, gauge, compact, line, off',
-  '                      (/fuel style <name> and /fuel styles <name> work too)',
-  '/fuel place below|above  draw under the prompt (default) or in the band above it',
-  '/fuel warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
-  '/fuel sound on|off    play a short chime with the alert (off by default)',
-  '/fuel help            this list',
+  '/drain                cache-miss report: today, last 7 days, tokens re-written, measured cost',
+  '/drain styles         preview every display style with the current figures',
+  '/drain <style>        switch style: minimal, bars, gauge, compact, line, off',
+  '                      (/drain style <name> and /drain styles <name> work too)',
+  '/drain place below|above  draw under the prompt (default) or in the band above it',
+  '/drain warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
+  '/drain sound on|off   play a short chime with the alert (off by default)',
+  '/drain help           this list',
 ]

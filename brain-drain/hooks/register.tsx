@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import * as core from './core.ts'
 import type { FuelMeta, FuelMiss, FuelPrefs, FuelReading } from '../types'
 
-// Fuel Gauge as a mod: the data source for the VS Code extension (the bridge's
+// Brain Drain, the mod: the data source for the VS Code extension (the bridge's
 // session file) and a coloured band above the prompt. Never calls a model,
 // never compacts, never touches the prompt: every prompt hook passes through.
 
@@ -300,7 +300,7 @@ async function pruneMisses($: $): Promise<void> {
   }
 }
 
-// ---------------------------------------------------------------- /fuel
+// ---------------------------------------------------------------- /drain
 
 const SAMPLE: FuelReading = {
   ...core.emptyReading(3600, 'transcript'),
@@ -321,12 +321,12 @@ async function runCommand($: $, args: string): Promise<string> {
   const [first = '', ...rest] = args.trim().split(/\s+/)
   let sub = first.toLowerCase()
   let arg = rest.join(' ')
-  // `/fuel bars` and `/fuel styles bars` are shorthand for `/fuel style bars`.
+  // `/drain bars` and `/drain styles bars` are shorthand for `/drain style bars`.
   if (core.isStyle(sub)) [sub, arg] = ['style', sub]
   else if (sub === 'styles' && arg !== '') sub = 'style'
   switch (sub) {
     case 'help':
-      return ['Fuel Gauge commands:', ...core.HELP].join('\n')
+      return ['Brain Drain commands:', ...core.HELP].join('\n')
     case 'styles': {
       const live = await read($, reading)
       const t = await nowS($)
@@ -339,7 +339,7 @@ async function runCommand($: $, args: string): Promise<string> {
       }
       lines.push('', 'While the cache has expired and the prompt box holds text, the band adds:')
       lines.push(`  ${core.styleText('minimal', core.makeView({ ...r, lastApiS: t - r.ttl - 60 }, t, true)).split('\n')[1] ?? ''}`)
-      lines.push('', 'Switch with /fuel <name>, e.g. /fuel gauge.')
+      lines.push('', 'Switch with /drain <name>, e.g. /drain gauge.')
       return lines.join('\n')
     }
     case 'style': {
@@ -362,13 +362,13 @@ async function runCommand($: $, args: string): Promise<string> {
     }
     case 'warn': {
       const n = Number(arg)
-      if (!Number.isInteger(n) || n < 0 || n > 3600) return 'Give whole seconds from 0 to 3600, e.g. /fuel warn 90. 0 turns the alert off.'
+      if (!Number.isInteger(n) || n < 0 || n > 3600) return 'Give whole seconds from 0 to 3600, e.g. /drain warn 90. 0 turns the alert off.'
       await setPrefs($, { warnSeconds: n })
       return n === 0 ? 'Expiry alert off.' : `Expiry alert ${n} s before the cache expires.`
     }
     case 'sound': {
       const v = arg.toLowerCase()
-      if (v !== 'on' && v !== 'off') return 'Use /fuel sound on or /fuel sound off.'
+      if (v !== 'on' && v !== 'off') return 'Use /drain sound on or /drain sound off.'
       await setPrefs($, { sound: v === 'on' })
       if (v === 'on') {
         try {
@@ -386,14 +386,14 @@ async function runCommand($: $, args: string): Promise<string> {
       const m = await getMeta($)
       const r = await read($, reading)
       const dir = m.outDir && m.home ? m.outDir.replace(m.home, '~') : '(not writing: no HOME)'
-      const lines = ['Fuel Gauge · cache misses (a request after the TTL ran out that re-wrote the cache)']
+      const lines = ['Brain Drain · cache misses (a request after the TTL ran out that re-wrote the cache)']
       lines.push(...core.ledgerReport(await misses($), await nowS($)))
       lines.push('Cost is the session ledger\'s measured rise over the turn that opened cold; misses before a cost reading have none.')
       lines.push('')
       lines.push(`TTL ${r ? `${r.ttl >= 3600 ? '1h' : '5m'} (${r.ttlSource})` : 'unknown'} · style ${p.style} · alert ${p.warnSeconds > 0 ? `${p.warnSeconds} s` : 'off'} · sound ${p.sound ? 'on' : 'off'}`)
       if (!m.interactive) lines.push('Session file: not written (not an interactive session)')
       else lines.push(`Session file: ${dir}${m.shadow ? ' (shadow copy: the bridge is still the status line, so its directory is left alone)' : ''}`)
-      lines.push('More: /fuel help')
+      lines.push('More: /drain help')
       return lines.join('\n')
     }
     default:
@@ -405,8 +405,8 @@ async function runCommand($: $, args: string): Promise<string> {
 
 async function setup($: $): Promise<void> {
   await $.command.register({
-    name: 'fuel',
-    description: 'Fuel Gauge: cache-miss report, display styles, expiry alert',
+    name: 'drain',
+    description: 'Brain Drain: cache-miss report, display styles, expiry alert',
     argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off]',
     immediate: true,
   })
@@ -474,7 +474,7 @@ export const register: Register = on => {
       await patchMeta($, { interactive: e.isInteractive })
       await setup($)
     } catch (err) {
-      $.ui.log(`fuel-gauge: setup failed: ${String(err)}`, { to: 'debug' })
+      $.ui.log(`brain-drain: setup failed: ${String(err)}`, { to: 'debug' })
     }
     return result
   })
@@ -538,7 +538,7 @@ export const register: Register = on => {
         void writeSessionFile($)
       }
     } catch (err) {
-      $.ui.log(`fuel-gauge: turn.step: ${String(err)}`, { to: 'debug' })
+      $.ui.log(`brain-drain: turn.step: ${String(err)}`, { to: 'debug' })
     }
     return result
   })
@@ -556,7 +556,7 @@ export const register: Register = on => {
       }
       await writeSessionFile($)
     } catch (err) {
-      $.ui.log(`fuel-gauge: session.measure: ${String(err)}`, { to: 'debug' })
+      $.ui.log(`brain-drain: session.measure: ${String(err)}`, { to: 'debug' })
     }
     return result
   })
@@ -622,7 +622,7 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'fuel' }, async ($, e) => ({ text: await runCommand($, e.args) }))
+  on('command.run', { command: 'drain' }, async ($, e) => ({ text: await runCommand($, e.args) }))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const others = await next(e)

@@ -36,7 +36,7 @@ const edit = (text: string, inputText: string) => ({ origin: { kind: 'composer' 
 
 test('the band draws the gauge, keeps other mods, and warns only while typing into an expired cache', async ($, on) => {
   const w = await setup($, on)
-  await $.command.run({ command: 'fuel', args: 'place above', origin: { kind: 'composer' } as never, presentation: {} as never })
+  await $.command.run({ command: 'drain', args: 'place above', origin: { kind: 'composer' } as never, presentation: {} as never })
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...BAND(), surface })
     expect((await rows(ui)).gauge).toContain('31%')
@@ -68,24 +68,24 @@ test('the band draws the gauge, keeps other mods, and warns only while typing in
   await ui.unmount()
 })
 
-test('/fuel style switches live and persists; line uses the status line', async ($, on) => {
+test('/drain style switches live and persists; line uses the status line', async ($, on) => {
   const w = await setup($, on)
-  await $.command.run({ command: 'fuel', args: 'place above', origin: { kind: 'composer' } as never, presentation: {} as never })
-  const r = await $.command.run({ command: 'fuel', args: 'style line', origin: { kind: 'composer' } as never, presentation: {} as never })
+  await $.command.run({ command: 'drain', args: 'place above', origin: { kind: 'composer' } as never, presentation: {} as never })
+  const r = await $.command.run({ command: 'drain', args: 'style line', origin: { kind: 'composer' } as never, presentation: {} as never })
   expect(r.text).toContain('Style: line')
   expect(w.store.get('prefs')).toMatchObject({ style: 'line' })
   expect(w.status.at(-1)).toContain('⛽ 31%')
   let ui = await $.ui.mount({ ...BAND(), surface: 'terminal' })
   expect((await rows(ui)).gauge).toBeUndefined()
   await ui.unmount()
-  await $.command.run({ command: 'fuel', args: 'style bars', origin: { kind: 'composer' } as never, presentation: {} as never })
+  await $.command.run({ command: 'drain', args: 'style bars', origin: { kind: 'composer' } as never, presentation: {} as never })
   expect(w.status.at(-1)).toBeUndefined()
   ui = await $.ui.mount({ ...BAND(), surface: 'terminal' })
   expect((await rows(ui)).gauge).toContain('ctx ▰▰▰▱▱▱▱▱▱▱ 31%')
   await ui.unmount()
-  const help = await $.command.run({ command: 'fuel', args: 'help', origin: { kind: 'composer' } as never, presentation: {} as never })
-  expect(help.text).toContain('/fuel sound on|off')
-  const styles = await $.command.run({ command: 'fuel', args: 'styles', origin: { kind: 'composer' } as never, presentation: {} as never })
+  const help = await $.command.run({ command: 'drain', args: 'help', origin: { kind: 'composer' } as never, presentation: {} as never })
+  expect(help.text).toContain('/drain sound on|off')
+  const styles = await $.command.run({ command: 'drain', args: 'styles', origin: { kind: 'composer' } as never, presentation: {} as never })
   expect(styles.text).toContain('gauge')
 })
 
@@ -144,10 +144,10 @@ test('the alert stays quiet while the main turn runs', async ($, on) => {
   expect(w.toasts).toHaveLength(0)
 })
 
-// `/fuel bars` and `/fuel styles bars` switch style, as `/fuel style bars` does.
-test('a style name after /fuel or /fuel styles switches style', async ($, on) => {
+// `/drain bars` and `/drain styles bars` switch style, as `/drain style bars` does.
+test('a style name after /drain or /drain styles switches style', async ($, on) => {
   const w = await setup($, on)
-  const run = (args: string) => $.command.run({ command: 'fuel', args, origin: { kind: 'composer' } as never, presentation: {} as never })
+  const run = (args: string) => $.command.run({ command: 'drain', args, origin: { kind: 'composer' } as never, presentation: {} as never })
   expect((await run('gauge')).text).toBe('Style: gauge.')
   expect(w.store.get('prefs')).toMatchObject({ style: 'gauge' })
   expect((await run('styles minimal')).text).toBe('Style: minimal.')
