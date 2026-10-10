@@ -32,6 +32,21 @@ export type DrainPrefs = {
   sound: boolean
   /** Prototype: per-subagent token bars under the gauge. Off unless asked for. */
   agents: boolean
+  /** The self-notice: a facts-only note to the main session's model when a threshold is crossed. Off unless asked for. */
+  notify: DrainNotify
+}
+
+export type DrainNotify = {
+  on: boolean
+  /** Context fill thresholds, percent. */
+  context: number[]
+  /** Five-hour window thresholds, percent. */
+  fiveHour: number[]
+  /** Weekly utilisation above the pace line: days since the weekly reset / 7 x 100, plus `margin` points. */
+  week: boolean
+  margin: number
+  /** The user's own text, appended after the facts when that threshold fires: `context:35`, `5h:80`, `week`. */
+  text: Record<string, string>
 }
 
 /** One subagent of this session, as its transcript adds up. */
@@ -63,6 +78,11 @@ export type DrainMeta = {
   shadow?: boolean
   transcriptPath?: string
   alertedFor?: number
+  /** Self-notice thresholds fired in this session and not re-armed: `context:70`, `5h:80`, `week`. */
+  notified?: string[]
+  /** This run's `BRAIN_DRAIN_NOTIFY`, parsed once at setup. */
+  notifyEnv?: Partial<DrainNotify>
+  notifyEnvError?: string
   pendingMiss?: { key: string; costBefore: number }
 }
 
