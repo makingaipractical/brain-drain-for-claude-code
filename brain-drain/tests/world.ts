@@ -21,6 +21,8 @@ export type World = {
   context: { tokens?: number; window: number; percent?: number }
   mtimes: Map<string, number>
   surfaces: string[]
+  /** Most characters one `tail -c +N` answers, as the engine caps stdout at 4 MiB. */
+  tailCap: number
   /** While set, every `mv` waits for it, so a test can see what waits on the move. */
   mvGate?: Promise<void>
 }
@@ -50,6 +52,7 @@ export function world(on: On, o: WorldOptions = {}): World {
     context: o.context ?? { window: 1000000 },
     mtimes: new Map(),
     surfaces: ['terminal'],
+    tailCap: 4 * 1024 * 1024,
   }
   mock.env(on, { HOME })
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
@@ -77,8 +80,15 @@ export function world(on: On, o: WorldOptions = {}): World {
   on('fs.list', ($, e) => {
     const dir = e.path.endsWith('/') ? e.path : `${e.path}/`
     const names = [...w.files.keys()].filter(k => k.startsWith(dir) && !k.slice(dir.length).includes('/'))
-    if (names.length === 0) return { deny: `ENOENT ${e.path}` }
-    return { value: names.map(k => ({ name: k.slice(dir.length), kind: 'file' as const, size: w.files.get(k)!.length })) as never }
+    // A directory exists while a file sits somewhere below it.
+    const dirs = [...new Set([...w.files.keys()].filter(k => k.startsWith(dir) && k.slice(dir.length).includes('/')).map(k => k.slice(dir.length).split('/')[0]!))]
+    if (names.length === 0 && dirs.length === 0) return { deny: `ENOENT ${e.path}` }
+    return {
+      value: [
+        ...names.map(k => ({ name: k.slice(dir.length), kind: 'file' as const, size: w.files.get(k)!.length, mtimeMs: w.mtimes.get(k) ?? w.clock.now(), isLink: false })),
+        ...dirs.map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })),
+      ] as never,
+    }
   })
   on('process.run', async ($, e) => {
     const argv = [...e.argv]
@@ -101,8 +111,14 @@ export function world(on: On, o: WorldOptions = {}): World {
       return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     if (argv[0] === 'tail') {
-      const n = Number(argv[2])
       const text = w.files.get(argv[3] ?? '') ?? ''
+      // `tail -c +N` starts at byte N (1-based); fixtures are ASCII, so a byte is a character.
+      if (argv[2]?.startsWith('+')) {
+        const from = Number(argv[2].slice(1)) - 1
+        const out = text.slice(from, from + w.tailCap)
+        return { value: { exitCode: 0, stdout: out, stderr: '', isStdoutTruncated: from + w.tailCap < text.length, isStderrTruncated: false } }
+      }
+      const n = Number(argv[2])
       return { value: { exitCode: 0, stdout: text.slice(Math.max(0, text.length - n)), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
     return { value: { exitCode: 127, stdout: '', stderr: 'unknown', isStdoutTruncated: false, isStderrTruncated: false } }
