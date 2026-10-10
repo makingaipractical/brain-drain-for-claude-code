@@ -3,7 +3,7 @@ import type { DrainLimit, DrainMiss, DrainReading, DrainStyle } from '../types'
 
 export const STYLES: readonly DrainStyle[] = ['minimal', 'bars', 'gauge', 'compact', 'line', 'off']
 export const BAND_STYLES: readonly DrainStyle[] = ['minimal', 'bars', 'gauge', 'compact']
-export const DEFAULT_STYLE: DrainStyle = 'bars'
+export const DEFAULT_STYLE: DrainStyle = 'minimal'
 export const DEFAULT_TTL = 300
 
 // Theme keys, so the light, dark and colour-blind themes each pick a readable shade.

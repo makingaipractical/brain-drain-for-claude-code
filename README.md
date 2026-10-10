@@ -4,7 +4,7 @@ How full Claude's context is, when its cache goes cold, and how much of your 5-h
 limits is left — right under the prompt in Claude Code.
 
 ```
-ctx ▰▰▱▱▱▱▱▱▱▱ 16% │ cache ▰▰▰▰▰▰▰▰▰▰ 59:58 │ 5h ▰▰▰▰▰ 95%  wk ▰▰▱▱▱ 44% │ opus·medium
+🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium
 ```
 
 Brain Drain is a Claude Code mod: a plugin that runs inside Claude Code and reads its figures
@@ -90,7 +90,7 @@ please open an issue with your Claude Code version.
 |---|---|
 | `/drain` | The cache-miss report, the TTL and where it came from, and your settings |
 | `/drain styles` | Previews every display style with your current figures |
-| `/drain <style>` | Switches style: `minimal`, `bars` (default), `gauge`, `compact`, `line`, `off` |
+| `/drain <style>` | Switches style: `minimal` (default), `bars`, `gauge`, `compact`, `line`, `off` |
 | `/drain place below\|above` | Draws under the prompt (default) or in the band above it |
 | `/drain warn <seconds>` | Lead time of the expiry notice (default 60; 0 turns it off) |
 | `/drain sound on\|off` | A short chime with the expiry notice (off by default) |

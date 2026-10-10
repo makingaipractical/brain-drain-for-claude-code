@@ -117,7 +117,7 @@ test('under the prompt a narrow terminal gets the narrow form', async ($, on) =>
   const ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface: 'terminal', viewport: { columns: 40, rows: 24 },
     props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
   const gauge = (await rows(ui as never)).gauge!
-  expect(gauge).toBe("ctx ▰▰▱▱▱ 31% │ cache ▰▰▰▰▰ 5:00")
+  expect(gauge).toBe("🧠 31% │ ◷ 5:00 │ opus")
   expect([...gauge].length).toBeLessThanOrEqual(40)
   await ui.unmount()
 })
