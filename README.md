@@ -156,6 +156,13 @@ neither overwrites the other. If the bridge is not your status line, the mod wri
 To remove it: `claude plugin uninstall brain-drain@brain-drain`. Uninstalling leaves the session
 files in `~/.claude/fuel-gauge-mod/`; delete that folder if you want them gone.
 
+## Contact
+
+Bugs and ideas go in [the issues](https://github.com/makingaipractical/brain-drain-for-claude-code/issues).
+If you would rather not use GitHub, or want to talk about something that does not belong on a
+public tracker, email [info@makingaipractical.com](mailto:info@makingaipractical.com). A security
+problem is best reported privately: [SECURITY.md](SECURITY.md) says how.
+
 ## Licence
 
 MIT
