@@ -94,9 +94,10 @@ Then run `/reload-plugins` in an open session, or start a new one.
 
 The gauge draws in `claude` in any terminal, including VS Code's integrated terminal. Mods also
 run in the Code tab of the Claude Desktop app, but Brain Drain has not been tried there yet. It draws nothing in Anthropic's VS Code chat panel
-([Mods overview](https://code.claude.com/docs/en/plugins/mods/overview), "Where mods run"); there,
-use the [Brain Drain VS Code extension](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge)
-instead.
+([Mods overview](https://code.claude.com/docs/en/plugins/mods/overview), "Where mods run"), and the
+[Brain Drain VS Code extension](https://marketplace.visualstudio.com/items?itemName=makingaipractical.claude-code-fuel-gauge)
+cannot see chat-panel sessions either: the panel does not run Claude Code's status line (checked on
+Claude Code 2.1.296).
 
 To update: `claude plugin update brain-drain@brain-drain`, or turn on auto-update for the
 marketplace in `/plugin` → Marketplaces.
