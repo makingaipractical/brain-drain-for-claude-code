@@ -7,7 +7,7 @@
     "jsx": "react", "jsxFactory": "h", "jsxFragmentFactory": "Fragment"
   },
   "include": [
-    "/private/tmp/claude-501/bundled-skills/2.1.289/443df7f2ac6fade0671915cffb7c7782/plugin-authoring/types/claude-code.d.ts",
+    "/private/tmp/claude-501/bundled-skills/2.1.296/0d101ad79d30828a1714c4ca2a67d1c3/plugin-authoring/types/claude-code.d.ts",
     "brain-drain/hooks", "brain-drain/types", "brain-drain/tests"
   ]
 }
