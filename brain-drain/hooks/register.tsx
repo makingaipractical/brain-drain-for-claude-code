@@ -97,6 +97,10 @@ function writeSessionFile($: $): Promise<void> {
 
 async function doWriteSessionFile($: $): Promise<void> {
   await syncSession($)
+  // Who holds the status line is checked before every write, not only at a
+  // turn's end: after Connect Status Line the bridge writes the extension's
+  // directory at once, and a long turn must not keep writing it too (#4983).
+  await refreshOutDir($)
   const m = await getMeta($)
   const r = await read($, reading)
   // A `claude -p` run has no status line, so the bridge writes no file for it.
@@ -140,7 +144,7 @@ async function chooseOutDir($: $, home: string): Promise<{ outDir: string; shado
   return { outDir: core.outDirFor(home, live), shadow: live }
 }
 
-/** Re-reads the status line, so re-wiring it mid-session moves the writes at the next turn's end. */
+/** Re-reads the status line, so re-wiring it mid-session moves the writes at the next write. */
 async function refreshOutDir($: $): Promise<void> {
   const m = await getMeta($)
   if (!m.home) return
