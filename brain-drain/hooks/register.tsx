@@ -795,6 +795,7 @@ export const register: Register = on => {
           cacheRead: usage.cache_read_input_tokens,
           cacheCreate: usage.cache_creation_input_tokens,
           outputTokens: usage.output_tokens,
+          ...core.stepFill(usage, cur.window),
           model: usage.model || e.model,
           effort: e.effort === undefined ? undefined : String(e.effort),
           ...(upgrade ? { ttl: 3600, ttlSource: 'warm-gap' as const } : {}),
