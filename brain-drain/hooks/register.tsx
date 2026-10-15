@@ -28,8 +28,24 @@ async function nowS($: $): Promise<number> {
   return (await $.clock.now()) / 1000
 }
 
+/** The prefs in `$.store`, sanitised and merged over the defaults. */
+async function loadPrefs($: $): Promise<DrainPrefs> {
+  const stored = (await $.store.get('prefs')) as Partial<DrainPrefs> | undefined
+  const p: DrainPrefs = { ...DEFAULT_PREFS, ...(stored ?? {}) }
+  if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
+  if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
+  p.agents = p.agents === true
+  p.notify = notify.sanitize(p.notify)
+  return p
+}
+
+/**
+ * The session's prefs. While `$.state` is blank (a /clear, not yet seeded again)
+ * the stored ones, so a `/drain` change made then keeps the other stored choices.
+ * Reads only: a timer or a render may call it.
+ */
 async function getPrefs($: $): Promise<DrainPrefs> {
-  return (await read($, prefs)) ?? DEFAULT_PREFS
+  return (await read($, prefs)) ?? (await loadPrefs($))
 }
 
 async function setPrefs($: $, change: Partial<DrainPrefs>): Promise<DrainPrefs> {
@@ -112,10 +128,12 @@ async function doWriteSessionFile($: $): Promise<void> {
 }
 
 /**
- * session.start fires once per process, never on /clear, so the reading would
- * outlive its session. When the id changes the reading starts again: from this
- * mod's own file for that id (a /resume), else empty but for the account's
- * TTL, the rate limits and the model.
+ * session.start fires once per process, never on /clear. Claude Code 2.1.300
+ * empties `$.state` on /clear and on a /resume in the same process, and
+ * `ensureSeeded` builds it again. A host that keeps `$.state` lands here
+ * instead: when the id changes the reading starts again, from this mod's own
+ * file for that id (a /resume), else empty but for the account's TTL, the rate
+ * limits and the model.
  */
 async function syncSession($: $): Promise<void> {
   const id = await $.session.id()
@@ -459,6 +477,9 @@ let notifyChain: Promise<unknown> = Promise.resolve()
  */
 function takeNotice($: $): Promise<{ text: string; crossed: string[] } | undefined> {
   const run = notifyChain.then(async () => {
+    // The first prompt after a /clear comes before any request: seed first, so
+    // BRAIN_DRAIN_NOTIFY and the stored thresholds count.
+    await ensureSeeded($).catch(() => undefined)
     const n = await notifySettings($)
     if (!n.on) return undefined
     await syncSession($)
@@ -684,40 +705,81 @@ async function runCommand($: $, args: string): Promise<string> {
 
 // ---------------------------------------------------------------- setup
 
-async function setup($: $): Promise<void> {
+/** Once per load of this code, from session.start. The command and the timers survive /clear. */
+async function setup($: $, interactive: boolean): Promise<void> {
   await $.command.register({
     name: 'drain',
     description: 'Brain Drain: cache-miss report, display styles, expiry alert',
     argumentHint: '[help|styles|<style>|place below|above|warn <s>|sound on|off|agents on|off|notify ...]',
     immediate: true,
   })
+  $.clock.every(1000, () => {
+    void tick($).catch(() => undefined)
+  })
+  $.clock.every(AGENT_REFRESH_MS, () => {
+    void refreshAgentsOnce($)
+  })
+  await seed($, () => seedSession($, interactive, false))
+}
 
-  const stored = (await $.store.get('prefs')) as Partial<DrainPrefs> | undefined
-  const p: DrainPrefs = { ...DEFAULT_PREFS, ...(stored ?? {}) }
-  if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
-  if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
-  p.agents = p.agents === true
-  p.notify = notify.sanitize(p.notify)
+// One seeding at a time. A module variable survives /clear; a hot reload resets
+// it, and session.start seeds again after one.
+let seeding: Promise<void> | undefined
+
+async function seed($: $, run: () => Promise<void>): Promise<void> {
+  while (seeding) await seeding
+  seeding = run()
+    .catch(err => $.ui.log(`brain-drain: seeding failed: ${String(err)}`, { to: 'debug' }))
+    .finally(() => {
+      seeding = undefined
+    })
+  await seeding
+}
+
+/**
+ * Seeds `$.state` again when the host has emptied it: Claude Code empties it on
+ * /clear and on a /resume in the same process, under a new session id, and
+ * fires no session.start. `interactive` is set by every seeding, so its absence
+ * marks a blank state. Called first thing by the hooks that run after a /clear.
+ */
+async function ensureSeeded($: $): Promise<void> {
+  while (seeding) await seeding
+  if ((await getMeta($)).interactive !== undefined) return
+  if (seeding) return ensureSeeded($)
+  await seed($, async () => {
+    // Re-checked inside the slot: another caller may have seeded meanwhile.
+    if ((await getMeta($)).interactive !== undefined) return
+    await seedSession($, (await $.session.surfaces()).length > 0, true)
+  })
+}
+
+/**
+ * Puts into `$.state` what this session needs: prefs, where to write, the
+ * reading and the context window. `blank`: the host emptied `$.state`, so a
+ * reading found there is a stray made since and is built again; otherwise (a hot
+ * reload) a kept reading stays.
+ */
+async function seedSession($: $, interactive: boolean, blank: boolean): Promise<void> {
+  const p = await loadPrefs($)
   await update($, prefs, () => p)
   const env = notify.parseEnv(await $.env.get('BRAIN_DRAIN_NOTIFY'))
-  await patchMeta($, { notifyEnv: env.value, notifyEnvError: env.error })
   if (env.error) $.ui.log(`brain-drain: ${env.error}`, { to: 'debug' })
 
   const home = await $.env.get('HOME')
   const where = home ? await chooseOutDir($, home) : { outDir: undefined, shadow: false }
-  await patchMeta($, { home, outDir: where.outDir, shadow: where.shadow })
+  await patchMeta($, { interactive, notifyEnv: env.value, notifyEnvError: env.error, home, outDir: where.outDir, shadow: where.shadow })
   await syncSession($)
   const m = await getMeta($)
 
-  // A reload keeps the reading in $.state. A new process seeds it from this
-  // mod's own earlier file (a resume), else from the account's TTL.
-  if (!(await read($, reading)) && m.outDir) {
+  // A reload keeps the reading in $.state. A new process or an emptied state
+  // seeds it from this mod's own earlier file (a resume), else from the account's TTL.
+  if ((blank || !(await read($, reading))) && m.outDir) {
     const acct = await accountTtl($, m)
     const ttl = acct ?? core.DEFAULT_TTL
     const source = acct ? 'account' : 'default'
     const own = core.readingFromFile(await readJson($, `${m.outDir}/${await $.session.id()}.json`), ttl, source)
     await update($, reading, () => own ?? core.emptyReading(ttl, source))
-  } else if (!(await read($, reading))) {
+  } else if (blank || !(await read($, reading))) {
     await update($, reading, () => core.emptyReading())
   }
 
@@ -728,12 +790,6 @@ async function setup($: $): Promise<void> {
   await writeSessionFile($)
   lastStatus = undefined
   await refreshStatusLine($)
-  $.clock.every(1000, () => {
-    void tick($).catch(() => undefined)
-  })
-  $.clock.every(AGENT_REFRESH_MS, () => {
-    void refreshAgentsOnce($)
-  })
 }
 
 function applyContext(r: DrainReading, c: { tokens?: number; window: number; percent?: number }): DrainReading {
@@ -760,8 +816,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     try {
-      await patchMeta($, { interactive: e.isInteractive })
-      await setup($)
+      await setup($, e.isInteractive)
     } catch (err) {
       $.ui.log(`brain-drain: setup failed: ${String(err)}`, { to: 'debug' })
     }
@@ -774,6 +829,7 @@ export const register: Register = on => {
       await dropTurn($, e.turnId).catch(() => undefined)
       return yield* next(e)
     }
+    await ensureSeeded($).catch(() => undefined)
     await syncSession($).catch(() => undefined)
     const startMs = await $.clock.now()
     const costAtStart = (await read($, reading))?.costUsd
@@ -836,6 +892,7 @@ export const register: Register = on => {
   on('session.measure', async ($, e, next) => {
     const result = await next(e)
     try {
+      await ensureSeeded($)
       await patchReading($, r => applyContext({ ...r, rateLimits: core.limitsFrom(e.rateLimits), costUsd: e.cost?.usd ?? r.costUsd }, e.context))
       const m = await getMeta($)
       if (m.pendingMiss && e.cost && e.changed.includes('cost')) {
@@ -855,6 +912,8 @@ export const register: Register = on => {
   on('classic.SessionStart', async ($, e, next) => {
     const result = await next(e)
     try {
+      // A /clear or a /resume fires this, though not session.start.
+      await ensureSeeded($)
       await syncSession($)
       await refreshOutDir($)
       if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
@@ -869,6 +928,7 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     const result = await next(e)
     try {
+      await ensureSeeded($)
       await refreshOutDir($)
       if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
       await refreshTtl($)
@@ -934,7 +994,10 @@ export const register: Register = on => {
     return result
   })
 
-  on('command.run', { command: 'drain' }, async ($, e) => ({ text: await runCommand($, e.args) }))
+  on('command.run', { command: 'drain' }, async ($, e) => {
+    await ensureSeeded($).catch(() => undefined)
+    return { text: await runCommand($, e.args) }
+  })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const others = await next(e)
