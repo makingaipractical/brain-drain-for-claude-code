@@ -3,7 +3,7 @@
 How full Claude's context is, when its cache goes cold, and how much of your 5-hour and weekly
 limits is left — right under the prompt in Claude Code.
 
-<img src="images/brain-drain-minimal.png" width="496" alt="Claude Code's prompt with Brain Drain's line under it: 🧠 25% │ ◷ 51:35 │ 5h 55% · wk 40% │ opus·x-high">
+<img src="images/brain-drain-minimal.png" width="496" alt="Claude Code's prompt with Brain Drain's line under it: 🧠 34% │ ◷ 59:59 │ 5h 12% ↻22:40 · wk 25% │ opus·x-high">
 
 Brain Drain is a Claude Code mod: a plugin that runs inside Claude Code and reads its figures
 from Claude Code itself. It never calls a model, makes no network requests, and never changes
@@ -157,7 +157,8 @@ files in `~/.claude/fuel-gauge-mod/`; delete that folder if you want them gone.
 
 ## Contact
 
-Bugs and ideas go in [the issues](https://github.com/makingaipractical/brain-drain-for-claude-code/issues).
+Questions go in [Discussions](https://github.com/makingaipractical/brain-drain-for-claude-code/discussions); bugs and ideas go in
+[the issues](https://github.com/makingaipractical/brain-drain-for-claude-code/issues). What changed in each version is in [CHANGELOG.md](CHANGELOG.md).
 If you would rather not use GitHub, or want to talk about something that does not belong on a
 public tracker, email [info@makingaipractical.com](mailto:info@makingaipractical.com). A security
 problem is best reported privately: [SECURITY.md](SECURITY.md) says how.
