@@ -142,3 +142,24 @@ test('re-wiring the status line moves the mod between directories at the next St
   await $.classic.Stop({ transcript_path: '/t/none.jsonl', stop_hook_active: false } as never)
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
 })
+
+// #4983: a turn that runs on after Connect Status Line stops writing the
+// extension's directory at its next request, not at the turn's end.
+test('connecting the bridge mid-turn moves the mod out at the next request, with no Stop between', async ($, on) => {
+  const w = world(on, { context: { tokens: 310000, window: 1000000, percent: 31 } })
+  on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
+    return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'tool_use', usage: STEP_USAGE } as never
+  })
+  const step = async (index: number) => {
+    for await (const _ of $.turn.step({ turnId: 't', index, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
+    await settle()
+  }
+  await start($)
+  await step(0)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
+  w.files.delete(`${HOME}/.claude/fuel-gauge/${SID}.json`)
+  w.settings = BRIDGE_SETTINGS
+  await step(1)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge-mod`)).toMatchObject({ writer: 'mod' })
+})
