@@ -181,3 +181,15 @@ test('an in-process /resume is followed within a second, with no event and no re
   expect(await drain($)).toContain('TTL 1h (previous)')
 })
 
+test('a hook before session.start writes nothing; session.start then seeds the true value and writes the file', async ($, on) => {
+  // A surface is attached, as in the VS Code chat panel, so a guess from surfaces would say interactive.
+  const w = host(on)
+  await $.classic.SessionStart({ source: 'startup', transcript_path: `/t/${SID}.jsonl` } as never)
+  await settle()
+  expect(sessionFile(w, PRIMARY, SID)).toBeUndefined()
+  expect(sessionFile(w, SHADOW, SID)).toBeUndefined()
+  await start($)
+  expect(sessionFile(w, PRIMARY, SID)).toMatchObject({ writer: 'mod', session_id: SID })
+  expect(await drain($)).not.toContain('not an interactive session')
+})
+

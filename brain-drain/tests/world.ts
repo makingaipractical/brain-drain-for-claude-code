@@ -30,8 +30,9 @@ export type World = {
   /** Every `ui.invalidate` the plugin asked for. */
   invalidates: number
   /**
-   * What Claude Code 2.1.300 does on /clear and on a /resume in the same
-   * process: a new session id, every `$.state` value empty, no session.start.
+   * What Claude Code 2.1.300 does on /clear: a new session id, every `$.state`
+   * value empty, no session.start. (An in-process /resume keeps `$.state`; a
+   * test does that by setting `sid` alone.)
    */
   clear: (sid: string) => void
 }
