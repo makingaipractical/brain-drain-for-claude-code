@@ -3,7 +3,7 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
-## 0.2.0 — unreleased (dated on the day it ships)
+## 0.2.0 — 2026-10-15
 
 - **When the 5-hour window resets.** The default style shows it beside the 5-hour figure, in your
   local time: `5h 55% ↻18:20`. On a narrow terminal the model name is dropped first, then the reset time.
