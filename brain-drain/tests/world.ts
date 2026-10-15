@@ -27,6 +27,13 @@ export type World = {
   tailCap: number
   /** While set, every `mv` waits for it, so a test can see what waits on the move. */
   mvGate?: Promise<void>
+  /** Every `ui.invalidate` the plugin asked for. */
+  invalidates: number
+  /**
+   * What Claude Code 2.1.300 does on /clear and on a /resume in the same
+   * process: a new session id, every `$.state` value empty, no session.start.
+   */
+  clear: (sid: string) => void
 }
 
 export type WorldOptions = {
@@ -58,7 +65,26 @@ export function world(on: On, o: WorldOptions = {}): World {
     mtimes: new Map(),
     surfaces: ['terminal'],
     tailCap: 4 * 1024 * 1024,
+    invalidates: 0,
+    clear: sid => {
+      wiped = true
+      setSince.clear()
+      w.sid = sid
+    },
   }
+  // An emptied value reads as never written, at the version the kit holds, so a
+  // compare-and-set still lands; a value written since reads as the kit has it.
+  let wiped = false
+  const setSince = new Set<string>()
+  on('state.get', async ($, e, next) => {
+    const got = (await next(e)) as { value?: { value: unknown; version: number } }
+    if (!wiped || setSince.has(e.key) || !got.value) return got as never
+    return { ...got, value: { ...got.value, value: undefined } } as never
+  })
+  on('state.set', async ($, e, next) => {
+    setSince.add(e.key)
+    return next(e)
+  })
   mock.env(on, { HOME, ...(o.env ?? {}) })
   on('store.get', ($, e) => ({ value: w.store.get(e.key) }))
   on('store.set', ($, e) => {
@@ -146,7 +172,10 @@ export function world(on: On, o: WorldOptions = {}): World {
     return { value: undefined }
   })
   on('ui.log', () => ({ value: undefined }))
-  on('ui.invalidate', () => ({ value: undefined }))
+  on('ui.invalidate', () => {
+    w.invalidates++
+    return { value: undefined }
+  })
   on('audio.play', () => ({ value: undefined }))
   return w
 }
