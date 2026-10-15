@@ -400,7 +400,20 @@ export function shouldWriteAccountTtl(
 
 // ---------------------------------------------------------------- misses
 
-export type StepUsage = { cache_read_input_tokens: number; cache_creation_input_tokens: number }
+export type StepUsage = { input_tokens: number; cache_read_input_tokens: number; cache_creation_input_tokens: number }
+type CacheUsage = Pick<StepUsage, 'cache_read_input_tokens' | 'cache_creation_input_tokens'>
+
+/**
+ * The context fill one request reports: the three input counters the status line
+ * sums, over the same raw window, rounded as the bridge's figure is. Set on every
+ * request so a long turn does not show its first request's fill until the turn
+ * ends; session.measure still has the last word at turn end (#4986).
+ */
+export function stepFill(usage: StepUsage, window: number | undefined): { tokens: number; percent?: number; unknown: false } {
+  const tokens = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens
+  if (window === undefined || window <= 0) return { tokens, unknown: false }
+  return { tokens, percent: Math.round(tokens / window * 100), unknown: false }
+}
 
 /**
  * Classifies one main-thread request. `first`: nothing earlier was seen in this
@@ -410,7 +423,7 @@ export type StepUsage = { cache_read_input_tokens: number; cache_creation_input_
 export function classifyStep(
   prev: Pick<DrainReading, 'lastApiS' | 'observed' | 'ttl'>,
   startS: number,
-  usage: StepUsage,
+  usage: CacheUsage,
 ): 'first' | 'warm' | 'miss' {
   if (!prev.observed || prev.lastApiS === undefined || prev.lastApiS <= 0) return 'first'
   const gap = startS - prev.lastApiS
@@ -425,7 +438,7 @@ export function classifyStep(
  * request after more than five minutes cannot be on the five-minute tier.
  * Only when the transcript gave no answer.
  */
-export function warmGapUpgrade(prev: Pick<DrainReading, 'lastApiS' | 'observed' | 'ttl' | 'ttlSource'>, startS: number, usage: StepUsage): boolean {
+export function warmGapUpgrade(prev: Pick<DrainReading, 'lastApiS' | 'observed' | 'ttl' | 'ttlSource'>, startS: number, usage: CacheUsage): boolean {
   if (prev.ttlSource === 'transcript' || prev.ttl >= 3600) return false
   if (!prev.observed || prev.lastApiS === undefined) return false
   return startS - prev.lastApiS > 310 && usage.cache_read_input_tokens > usage.cache_creation_input_tokens
