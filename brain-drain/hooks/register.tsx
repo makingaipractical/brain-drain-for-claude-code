@@ -128,18 +128,22 @@ async function doWriteSessionFile($: $): Promise<void> {
 }
 
 /**
- * session.start fires once per process, never on /clear. Claude Code 2.1.300
- * empties `$.state` on /clear and on a /resume in the same process, and
- * `ensureSeeded` builds it again. A host that keeps `$.state` lands here
- * instead: when the id changes the reading starts again, from this mod's own
- * file for that id (a /resume), else empty but for the account's TTL, the rate
- * limits and the model.
+ * session.start fires once per process, never on /clear or /resume. Claude
+ * Code 2.1.300 empties `$.state` on /clear, and `ensureSeeded` builds it again.
+ * It keeps `$.state` on a /resume in the same process, and so may another host
+ * on /clear; that lands here: when the id changes the reading starts again,
+ * from this mod's own file for that id (a /resume), else empty but for the
+ * account's TTL, the rate limits and the model. The 1-second tick notices the
+ * change (`followSession`), so it does not wait for a request.
  */
 async function syncSession($: $): Promise<void> {
   const id = await $.session.id()
   const m = await getMeta($)
   if (m.sessionId === id) return
-  await patchMeta($, { sessionId: id, alertedFor: undefined, pendingMiss: undefined, notified: undefined })
+  // Transcripts are named after their session, side by side; the next classic event confirms the path.
+  const oldName = `/${m.sessionId}.jsonl`
+  const transcriptPath = m.sessionId !== undefined && m.transcriptPath?.endsWith(oldName) ? `${m.transcriptPath.slice(0, -oldName.length)}/${id}.jsonl` : undefined
+  await patchMeta($, { sessionId: id, transcriptPath, alertedFor: undefined, pendingMiss: undefined, notified: undefined })
   await clearAgents($)
   const prev = await read($, reading)
   if (m.sessionId === undefined || !prev) return
@@ -420,7 +424,32 @@ async function refreshStatusLine($: $): Promise<void> {
   $.ui.status(text)
 }
 
+let following: Promise<void> | undefined
+
+/**
+ * An in-process /resume changes the session id and keeps `$.state`, and no
+ * event reaches the mod until the next request. Checked every second: one id
+ * read, and files only when the id changed.
+ */
+async function followSession($: $): Promise<void> {
+  if (following || seeding) return
+  const id = await $.session.id()
+  if ((await getMeta($)).sessionId === id || following) return
+  following = (async () => {
+    await ensureSeeded($)
+    await syncSession($)
+    await writeSessionFile($)
+    await refreshStatusLine($)
+  })()
+    .catch(err => $.ui.log(`brain-drain: following the session: ${String(err)}`, { to: 'debug' }))
+    .finally(() => {
+      following = undefined
+    })
+  await following
+}
+
 async function tick($: $): Promise<void> {
+  await followSession($)
   const p = await getPrefs($)
   const r = await read($, reading)
   if (!r) return
@@ -921,6 +950,8 @@ export const register: Register = on => {
     const result = await next(e)
     try {
       // A /clear or a /resume fires this, though not session.start.
+      const sid = await $.session.id()
+      if (e.session_id && e.session_id !== sid) $.ui.log(`brain-drain: SessionStart (${e.source}) names session ${e.session_id}, the engine says ${sid}`, { to: 'debug' })
       await ensureSeeded($)
       await syncSession($)
       await refreshOutDir($)

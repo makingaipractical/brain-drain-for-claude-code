@@ -161,3 +161,23 @@ test('a session that did not report itself interactive stays without a file afte
   expect(sessionFile(w, SHADOW, NEW)).toBeUndefined()
   expect(await drain($)).toContain('not an interactive session')
 })
+
+test('an in-process /resume is followed within a second, with no event and no request', async ($, on) => {
+  // Claude Code 2.1.300 keeps $.state on an in-process /resume and tells the mod nothing until the next request.
+  const RES = '77777777-0000-0000-0000-000000000000'
+  const lastApi = Date.UTC(2026, 9, 3, 11, 40) / 1000
+  const own = JSON.stringify({ writer: 'mod', session_id: RES, used_percentage: 42, context_window_size: 1000000,
+    detected_ttl: 3600, last_api_call_ts: lastApi, model: 'claude-sonnet-5-5' })
+  const w = host(on, { context: { tokens: 310000, window: 1000000, percent: 31 }, files: { [`${PRIMARY}/${RES}.json`]: own } })
+  await start($)
+  await $.classic.SessionStart({ source: 'startup', transcript_path: `/t/${SID}.jsonl` } as never)
+  await step($)
+  w.context = { window: 1000000 }
+  w.sid = RES
+  await w.clock.advance(1000)
+  await settle()
+  expect(w.files.get(`${PRIMARY}/${RES}.json`)).not.toBe(own)
+  expect(sessionFile(w, PRIMARY, RES)).toMatchObject({ session_id: RES, used_percentage: 42, last_api_call_ts: lastApi, detected_ttl: 3600, model: 'claude-sonnet-5-5' })
+  expect(await drain($)).toContain('TTL 1h (previous)')
+})
+
