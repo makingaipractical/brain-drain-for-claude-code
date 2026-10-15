@@ -103,8 +103,9 @@ marketplace in `/plugin` → Marketplaces.
 
 **Nothing under the prompt?** Run `/plugin`: the line under the tabs should read
 `1 mod active · brain-drain`. Check that `claude --version` is 2.1.287 or later. Mods are switched
-off by `disableAllHooks` in your settings, by an organisation's `allowManagedModsOnly`, and for one
-session by `--safe-mode`. `/drain` shows what the mod sees. Mods are new, and a Claude Code update
+off by `disableAllHooks` in your settings, by an organisation's `allowManagedModsOnly` or
+`allowManagedHooksOnly` ([settings reference](https://code.claude.com/docs/en/settings-reference#what-runs-under-allowmanagedhooksonly)),
+and for one session by `--safe-mode`. `/drain` shows what the mod sees. Mods are new, and a Claude Code update
 can break one; if Brain Drain stops drawing,
 [please open an issue](https://github.com/makingaipractical/brain-drain-for-claude-code/issues)
 with your Claude Code version.
@@ -138,7 +139,9 @@ Styles:
 The two work side by side. The extension's status line bridge writes `~/.claude/fuel-gauge/`,
 and while it is connected the mod writes its own copy to `~/.claude/fuel-gauge-mod/` instead, so
 neither overwrites the other. If the bridge is not your status line, the mod writes
-`~/.claude/fuel-gauge/` itself. In `claude -p` runs it writes no session file.
+`~/.claude/fuel-gauge/` itself. In `claude -p` runs it writes no session file. From extension
+v0.9.3, while the mod has written a session file in the last 36 hours, the extension does not ask
+for Claude Code's status line, so you can keep your own.
 
 ## What it touches
 

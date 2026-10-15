@@ -6,7 +6,7 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
 ## 0.2.0 — unreleased (dated on the day it ships)
 
 - **When the 5-hour window resets.** The default style shows it beside the 5-hour figure, in your
-  local time: `5h 55% ↻18:20`. On a narrow terminal the model name goes first, then the reset time.
+  local time: `5h 55% ↻18:20`. On a narrow terminal the model name is dropped first, then the reset time.
 - **The context figure keeps up during a turn.** It is updated from each request Claude Code makes,
   not only when the turn ends.
 - **With the VS Code extension:** the mod checks before every write, not only at the start and end of
