@@ -1,5 +1,5 @@
 import type { DrainLimit, DrainNotify } from '../types'
-import { fmtTokens } from './core.ts'
+import { clock, fmtTokens } from './core.ts'
 
 // The self-notice: a one-line note of facts handed to the main session's model
 // when a figure crosses a threshold. Pure: register.tsx reads the figures, keeps
@@ -67,11 +67,6 @@ export function evaluate(f: Figures, n: DrainNotify, fired: readonly string[], n
     }
   }
   return { crossed, fired: [...now] }
-}
-
-function clock(epochS: number): string {
-  const d = new Date(epochS * 1000)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 /** The facts, one line: `Brain Drain: context 71% (712k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 43%)`. */

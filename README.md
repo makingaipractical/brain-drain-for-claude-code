@@ -22,7 +22,8 @@ Not made by or affiliated with Anthropic.
   cannot be read, the last lifetime seen on this account. Yellow under 60 seconds, red under 15,
   then `expired` (`exp` when the terminal is narrow).
 - **Limits:** your 5-hour (`5h`) and weekly (`wk`) usage, yellow from 70%, red from 90%. Hidden
-  when Claude Code reports none.
+  when Claude Code reports none. The default style also shows when the 5-hour window resets, in
+  your local time: `5h 55% ↻18:20`.
 - **Model and effort**, for example `opus·medium`.
 
 The context figure reads `–%` before the first reading, `~42%` after `/compact` until the next one,

@@ -45,6 +45,38 @@ describe('styles', () => {
   })
 })
 
+describe('the 5-hour reset time', () => {
+  // Expected clock times are worked out here, in local time, not with core.clock.
+  const hhmm = (s: number) => {
+    const d = new Date(s * 1000)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  }
+  const reset = NOW + 3 * 3600 + 20 * 60
+  const withReset = (fiveAt?: number, weekAt?: number) =>
+    view({ rateLimits: [{ kind: 'five_hour', pct: 95, resetsAt: fiveAt }, { kind: 'seven_day', pct: 44, resetsAt: weekAt }] })
+
+  test('minimal shows when the 5-hour window resets', () => {
+    expect(core.styleText('minimal', withReset(reset))).toBe(`🧠 16% │ ◷ 59:58 │ 5h 95% ↻${hhmm(reset)} · wk 44% │ opus·medium`)
+  })
+  test('only the 5-hour window, never the week', () => {
+    expect(core.styleText('minimal', withReset(undefined, NOW + 3 * 86400))).toBe('🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium')
+  })
+  test('a reset already past is not shown', () => {
+    expect(core.styleText('minimal', withReset(NOW - 60))).toBe('🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44% │ opus·medium')
+  })
+  test('the other styles are unchanged', () => {
+    const v = withReset(reset)
+    for (const style of ['bars', 'gauge', 'compact', 'line'] as const) expect(core.styleText(style, v)).not.toContain('↻')
+  })
+  test('when space is short the model goes first, then the reset time', () => {
+    const v = withReset(reset)
+    const noModel = `🧠 16% │ ◷ 59:58 │ 5h 95% ↻${hhmm(reset)} · wk 44%`
+    const cols = core.cellWidth(noModel)
+    expect(core.plain(core.renderRows('minimal', v, cols)[0]!)).toBe(noModel)
+    expect(core.plain(core.renderRows('minimal', v, cols - 1)[0]!)).toBe('🧠 16% │ ◷ 59:58 │ 5h 95% · wk 44%')
+  })
+})
+
 describe('colours', () => {
   test('context thresholds', () => {
     expect(view({ percent: 59 }).ctx.color).toBe('success')

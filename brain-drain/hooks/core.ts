@@ -105,6 +105,12 @@ export function effortLabel(e: string | undefined): string | undefined {
   return EFFORT_LABELS[e] ?? e
 }
 
+/** Local wall-clock time, `18:20`. */
+export function clock(epochS: number): string {
+  const d = new Date(epochS * 1000)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export function limitLabel(kind: string): string {
   if (kind === 'five_hour') return '5h'
   if (kind === 'seven_day') return 'wk'
@@ -117,7 +123,8 @@ export function limitLabel(kind: string): string {
 export type View = {
   ctx: { pct?: number; unknown: boolean; implausible: boolean; color?: string }
   cache: CacheState & { color?: string; ttl: number }
-  limits: { label: string; pct: number; color?: string }[]
+  /** `resetsAt` only for the 5-hour window, and only while it lies ahead. */
+  limits: { label: string; pct: number; color?: string; resetsAt?: number }[]
   modelEffort?: string
   /** Set while the prompt box holds text and the cache has expired. */
   cold?: { tokens?: number }
@@ -132,7 +139,12 @@ export function makeView(r: DrainReading, nowS: number, drafting: boolean): View
   return {
     ctx: { pct: r.percent, unknown: r.unknown, implausible, color: ctxColor },
     cache: { ...cache, color: cacheColor(cache, ctxColor), ttl: r.ttl },
-    limits: r.rateLimits.map(l => ({ label: limitLabel(l.kind), pct: l.pct, color: limitColor(l.pct) })),
+    limits: r.rateLimits.map(l => ({
+      label: limitLabel(l.kind),
+      pct: l.pct,
+      color: limitColor(l.pct),
+      resetsAt: l.kind === 'five_hour' && l.resetsAt !== undefined && l.resetsAt > nowS ? l.resetsAt : undefined,
+    })),
     modelEffort: model === undefined ? undefined : effort === undefined ? model : `${model}·${effort}`,
     cold: drafting && cache.kind === 'expired' ? { tokens: r.tokens } : undefined,
   }
@@ -180,11 +192,12 @@ function joinGroups(groups: Row[]): Row {
   return out
 }
 
-function limitsGroup(v: View, glue: string, withPct: boolean): Row {
+function limitsGroup(v: View, glue: string, withPct: boolean, withReset = false): Row {
   const g: Row = []
   v.limits.forEach((l, i) => {
     if (i > 0) g.push({ text: glue, dim: true })
     g.push({ text: `${l.label} `, dim: true }, { text: `${Math.round(l.pct)}${withPct ? '%' : ''}`, color: l.color })
+    if (withReset && l.resetsAt !== undefined) g.push({ text: ` ↻${clock(l.resetsAt)}`, dim: true })
   })
   return g
 }
@@ -198,11 +211,11 @@ export function bar(fraction: number, cells: number, color: string | undefined):
   return row
 }
 
-function minimalRow(v: View, withModel: boolean): Row {
+function minimalRow(v: View, withModel: boolean, withReset: boolean): Row {
   const groups: Row[] = [[{ text: '🧠 ' }, { text: pctText(v), color: v.ctx.color, bold: true }]]
   const c = cacheText(v)
   if (c) groups.push([{ text: '◷ ', dim: true }, { text: c, color: v.cache.color }])
-  groups.push(limitsGroup(v, ' · ', true))
+  groups.push(limitsGroup(v, ' · ', true, withReset))
   if (withModel && v.modelEffort) groups.push([{ text: v.modelEffort, dim: true }])
   return joinGroups(groups)
 }
@@ -279,7 +292,8 @@ function coldRows(v: View): Row[] {
 function candidates(style: DrainStyle, v: View): Row[] {
   switch (style) {
     case 'minimal':
-      return [minimalRow(v, true), minimalRow(v, false), compactRow(v, true), compactRow(v, false)]
+      // The model goes first when space is short, then the 5-hour reset time.
+      return [minimalRow(v, true, true), minimalRow(v, false, true), minimalRow(v, false, false), compactRow(v, true), compactRow(v, false)]
     case 'bars':
       return [barsRow(v, true, true), barsRow(v, false, true), barsRow(v, false, false), compactRow(v, true), compactRow(v, false)]
     case 'gauge':
