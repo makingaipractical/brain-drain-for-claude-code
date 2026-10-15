@@ -725,6 +725,12 @@ async function setup($: $, interactive: boolean): Promise<void> {
 // One seeding at a time. A module variable survives /clear; a hot reload resets
 // it, and session.start seeds again after one.
 let seeding: Promise<void> | undefined
+/**
+ * What session.start said, kept for the seedings after a /clear. The process
+ * stays what it was: a session that did not report itself interactive (`-p`,
+ * Anthropic's VS Code chat panel) must not start writing a file after a /clear.
+ */
+let startInteractive: boolean | undefined
 
 async function seed($: $, run: () => Promise<void>): Promise<void> {
   while (seeding) await seeding
@@ -749,7 +755,8 @@ async function ensureSeeded($: $): Promise<void> {
   await seed($, async () => {
     // Re-checked inside the slot: another caller may have seeded meanwhile.
     if ((await getMeta($)).interactive !== undefined) return
-    await seedSession($, (await $.session.surfaces()).length > 0, true)
+    // Surfaces only when session.start was not seen by this code (a hot reload and a /clear together).
+    await seedSession($, startInteractive ?? (await $.session.surfaces()).length > 0, true)
   })
 }
 
@@ -816,6 +823,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     try {
+      startInteractive = e.isInteractive
       await setup($, e.isInteractive)
     } catch (err) {
       $.ui.log(`brain-drain: setup failed: ${String(err)}`, { to: 'debug' })

@@ -150,3 +150,14 @@ test('a host that keeps $.state across /clear still follows the id, and nothing 
   expect(report).toContain('style minimal')
   expect(sessionFile(w, PRIMARY, SID)).toMatchObject({ used_percentage: 31, model: 'claude-opus-5-5' })
 })
+
+test('a session that did not report itself interactive stays without a file after a /clear', async ($, on) => {
+  // An attached surface, as in Anthropic's VS Code chat panel, though session.start said not interactive.
+  const w = host(on)
+  await start($, false)
+  await clear($, w)
+  await step($)
+  expect(sessionFile(w, PRIMARY, NEW)).toBeUndefined()
+  expect(sessionFile(w, SHADOW, NEW)).toBeUndefined()
+  expect(await drain($)).toContain('not an interactive session')
+})
