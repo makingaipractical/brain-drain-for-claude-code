@@ -11,10 +11,11 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
   not only when the turn ends.
 - **With the VS Code extension:** the mod checks before every write, not only at the start and end of
   a turn, whether the extension's bridge holds the status line.
-- **After `/clear` or `/resume`, the line carries on.** Before, it lost your chosen style and other
-  settings, its cache clock fell back to 5 minutes and could say "expired" when it was not, and the
-  session file for the VS Code extension stopped. Now the new session starts with your settings,
-  the right cache time and its own session file.
+- **After `/clear`, the line carries on.** Before, it lost your chosen style and other settings, its
+  cache clock fell back to 5 minutes and could say "expired" when it was not, and the session file for
+  the VS Code extension stopped. Now the new session starts with your settings, the right cache time
+  and its own session file. After `/resume` the line switches to the resumed session at once, not at
+  your next message.
 
 ## 0.1.0 — 2026-10-11
 
