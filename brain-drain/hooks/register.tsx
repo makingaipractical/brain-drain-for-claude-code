@@ -141,8 +141,11 @@ async function syncSession($: $): Promise<void> {
   const m = await getMeta($)
   if (m.sessionId === id) return
   // Transcripts are named after their session, side by side; the next classic event confirms the path.
+  // A SessionStart that came before the engine's id switched has already stored the new path: kept.
   const oldName = `/${m.sessionId}.jsonl`
-  const transcriptPath = m.sessionId !== undefined && m.transcriptPath?.endsWith(oldName) ? `${m.transcriptPath.slice(0, -oldName.length)}/${id}.jsonl` : undefined
+  const transcriptPath = m.transcriptPath?.endsWith(`/${id}.jsonl`)
+    ? m.transcriptPath
+    : m.sessionId !== undefined && m.transcriptPath?.endsWith(oldName) ? `${m.transcriptPath.slice(0, -oldName.length)}/${id}.jsonl` : undefined
   await patchMeta($, { sessionId: id, transcriptPath, alertedFor: undefined, pendingMiss: undefined, notified: undefined })
   await clearAgents($)
   const prev = await read($, reading)
@@ -758,6 +761,9 @@ let seeding: Promise<void> | undefined
  * What session.start said, kept for the seedings after a /clear. The process
  * stays what it was: a session that did not report itself interactive (`-p`,
  * Anthropic's VS Code chat panel) must not start writing a file after a /clear.
+ * Unknown (a hook ran before this load's session.start) counts as not
+ * interactive: no guess may make a chat-panel session write a file, and
+ * session.start seeds again with the true value right after, a hot reload included.
  */
 let startInteractive: boolean | undefined
 
@@ -772,10 +778,11 @@ async function seed($: $, run: () => Promise<void>): Promise<void> {
 }
 
 /**
- * Seeds `$.state` again when the host has emptied it: Claude Code empties it on
- * /clear and on a /resume in the same process, under a new session id, and
- * fires no session.start. `interactive` is set by every seeding, so its absence
- * marks a blank state. Called first thing by the hooks that run after a /clear.
+ * Seeds `$.state` again when the host has emptied it: Claude Code 2.1.300
+ * empties it on /clear, under a new session id, and fires no session.start.
+ * (An in-process /resume keeps it; `followSession` handles that.) `interactive`
+ * is set by every seeding, so its absence marks a blank state. Called first
+ * thing by the hooks that run after a /clear, and by the tick.
  */
 async function ensureSeeded($: $): Promise<void> {
   while (seeding) await seeding
@@ -784,8 +791,7 @@ async function ensureSeeded($: $): Promise<void> {
   await seed($, async () => {
     // Re-checked inside the slot: another caller may have seeded meanwhile.
     if ((await getMeta($)).interactive !== undefined) return
-    // Surfaces only when session.start was not seen by this code (a hot reload and a /clear together).
-    await seedSession($, startInteractive ?? (await $.session.surfaces()).length > 0, true)
+    await seedSession($, startInteractive ?? false, true)
   })
 }
 
