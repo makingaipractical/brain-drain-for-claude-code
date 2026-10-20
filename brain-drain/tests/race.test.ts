@@ -33,8 +33,6 @@ function host(on: On, o: WorldOptions = {}): World {
   on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
   })
-  on('classic.SessionStart', () => ({}))
-  on('classic.Stop', () => ({}))
   on('prompt.submit', ($2: unknown, e: unknown) => e as never)
   return w
 }
@@ -47,7 +45,7 @@ async function drain($: Engine, args = ''): Promise<string> {
   return ((await $.command.run(CMD(args))) as { text: string }).text
 }
 
-test('one seeding when SessionStart, a tick, a request and two commands land together after a /clear', async ($, on) => {
+test('one seeding when a tick, a request and two commands land together after a /clear', async ($, on) => {
   const w = host(on, { context: { tokens: 310000, window: 1000000, percent: 31 }, files: { [`${PRIMARY}/account_ttl.json`]: ACCOUNT_1H } })
   await start($)
   await step($)
@@ -55,7 +53,6 @@ test('one seeding when SessionStart, a tick, a request and two commands land tog
   const before = keysCalls
   w.clear(NEW)
   await Promise.all([
-    $.classic.SessionStart({ source: 'clear', transcript_path: `/t/${NEW}.jsonl` } as never),
     w.clock.advance(1000),
     step($, 't2'),
     drain($, 'help'),
@@ -78,7 +75,6 @@ test('hooks waiting on a seeding held up by the file move all finish once it mov
   w.clear(NEW)
   let done = false
   const pending = Promise.all([
-    $.classic.SessionStart({ source: 'clear', transcript_path: `/t/${NEW}.jsonl` } as never),
     w.clock.advance(1000),
     step($, 't2'),
     drain($, 'help'),
@@ -94,24 +90,3 @@ test('hooks waiting on a seeding held up by the file move all finish once it mov
   expect(sessionFile(w, PRIMARY, NEW)).toMatchObject({ session_id: NEW })
 })
 
-test('a SessionStart that arrives before the session id switches keeps the new transcript path', async ($, on) => {
-  const w = host(on, { context: { tokens: 310000, window: 1000000, percent: 31 }, files: { [`/t/${NEW}.jsonl`]: ROW_1H } })
-  await start($)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: `/t/${SID}.jsonl` } as never)
-  await step($)
-  await settle()
-  await w.clock.advance(5000)
-  // The state is blank and the event names the new transcript, but the engine still gives the old id.
-  w.clear(NEW)
-  w.sid = SID
-  await $.classic.SessionStart({ source: 'clear', transcript_path: `/t/${NEW}.jsonl` } as never)
-  await settle()
-  w.sid = NEW
-  await w.clock.advance(1000)
-  await settle()
-  // A Stop that carries no path reads the transcript the mod remembers.
-  w.files.set(`/t/${NEW}.jsonl`, ROW_5M)
-  await $.classic.Stop({} as never)
-  await settle()
-  expect(await drain($)).toContain('TTL 5m (transcript)')
-})

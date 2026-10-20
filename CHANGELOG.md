@@ -10,6 +10,11 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
   end-of-turn hooks, which were the only place the mod learned where the session's transcript is. The
   mod now finds the transcript itself and reads it when the turn ends, so the TTL is read from the
   transcript again instead of carried over from the last session.
+- **No more "its classic.Stop hook was skipped" line.** On a Team or Enterprise login Claude Code
+  printed that line at session start, once for each of the two hooks the security plugin skipped. The
+  mod no longer has those hooks: it follows `/clear` and `/resume` on its own, and the subagent rows
+  find the transcript before the first turn ends. It also looks for the transcript under
+  `CLAUDE_CONFIG_DIR` when you set one.
 
 ## 0.2.0 — 2026-10-15
 

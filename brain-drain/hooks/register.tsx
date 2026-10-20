@@ -140,8 +140,7 @@ async function syncSession($: $): Promise<void> {
   const id = await $.session.id()
   const m = await getMeta($)
   if (m.sessionId === id) return
-  // Transcripts are named after their session, side by side; the next classic event confirms the path.
-  // A SessionStart that came before the engine's id switched has already stored the new path: kept.
+  // Transcripts are named after their session, side by side; findTranscript checks the path.
   const oldName = `/${m.sessionId}.jsonl`
   const transcriptPath = m.transcriptPath?.endsWith(`/${id}.jsonl`)
     ? m.transcriptPath
@@ -234,25 +233,29 @@ async function tail($: $, path: string, bytes: number, size: number): Promise<st
 }
 
 /**
- * The classic events carry the transcript's path, but a managed plugin above the
- * mod may skip its classic hooks: on a Team org, Claude Code 2.1.304's own
- * cc-plugin-sec-default does so every time (#5712). Then the path is where
- * Claude Code keeps it, the project folder with every other character a dash,
- * and is kept only if the file is there.
+ * No mod event names the transcript, and the classic events that do are skipped
+ * on a Team org by Claude Code 2.1.304's own cc-plugin-sec-default (#5712). So
+ * the path is where Claude Code keeps it, the project folder with every other
+ * character a dash, under CLAUDE_CONFIG_DIR when it is set, and is kept only if
+ * the file is there.
  */
 async function findTranscript($: $): Promise<void> {
   const m = await getMeta($)
   const id = await $.session.id()
-  if (!m.home || m.transcriptPath?.endsWith(`/${id}.jsonl`)) return
-  for (const dir of new Set([await $.session.root(), await $.session.cwd()])) {
-    const path = `${m.home}/.claude/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/${id}.jsonl`
-    try {
-      await $.fs.stat(path)
-    } catch {
-      continue
+  if (m.transcriptPath?.endsWith(`/${id}.jsonl`)) return
+  const configDir = (await $.env.get('CLAUDE_CONFIG_DIR'))?.replace(/\/+$/, '')
+  const bases = [configDir, m.home && `${m.home}/.claude`].filter((b): b is string => !!b)
+  for (const base of new Set(bases)) {
+    for (const dir of new Set([await $.session.root(), await $.session.cwd()])) {
+      const path = `${base}/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/${id}.jsonl`
+      try {
+        await $.fs.stat(path)
+      } catch {
+        continue
+      }
+      await patchMeta($, { transcriptPath: path })
+      return
     }
-    await patchMeta($, { transcriptPath: path })
-    return
   }
 }
 
@@ -377,6 +380,7 @@ async function setAgents($: $, next: DrainAgents): Promise<void> {
 
 async function refreshAgents($: $): Promise<void> {
   if (!(await getPrefs($)).agents) return
+  await findTranscript($)
   const m = await getMeta($)
   const dir = m.transcriptPath ? subagentDir(m.transcriptPath) : undefined
   if (dir !== agentDir) {
@@ -465,6 +469,8 @@ async function followSession($: $): Promise<void> {
   following = (async () => {
     await ensureSeeded($)
     await syncSession($)
+    // A /resume names a transcript with rows already in it.
+    await refreshTtl($).catch(() => undefined)
     await writeSessionFile($)
     await refreshStatusLine($)
   })()
@@ -911,7 +917,7 @@ export const register: Register = on => {
         let upgrade = core.warmGapUpgrade(prev, startS, usage)
         if (upgrade) {
           // The earlier requests' rows are on disk and name the tier exactly. A cache
-          // something else kept warm must not pass for the 1-hour tier until Stop.
+          // something else kept warm must not pass for the 1-hour tier until the turn ends.
           await refreshTtl($).catch(() => undefined)
           if ((await read($, reading))?.ttlSource === 'transcript') upgrade = false
         }
@@ -975,39 +981,6 @@ export const register: Register = on => {
     return result
   })
 
-  // The transcript's path rides on every classic event; the TTL is read once the turn's rows are on disk.
-  on('classic.SessionStart', async ($, e, next) => {
-    const result = await next(e)
-    try {
-      // A /clear or a /resume fires this, though not session.start.
-      const sid = await $.session.id()
-      if (e.session_id && e.session_id !== sid) $.ui.log(`brain-drain: SessionStart (${e.source}) names session ${e.session_id}, the engine says ${sid}`, { to: 'debug' })
-      await ensureSeeded($)
-      await syncSession($)
-      await refreshOutDir($)
-      if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
-      await refreshTtl($)
-      await writeSessionFile($)
-    } catch {
-      // the TTL falls back to the previous value or the account's
-    }
-    return result
-  })
-
-  on('classic.Stop', async ($, e, next) => {
-    const result = await next(e)
-    try {
-      await ensureSeeded($)
-      await refreshOutDir($)
-      if (e.transcript_path) await patchMeta($, { transcriptPath: e.transcript_path })
-      await refreshTtl($)
-      await writeSessionFile($)
-    } catch {
-      // as above
-    }
-    return result
-  })
-
   // The alert waits while a main turn runs. A subagent's turn leaves the list at
   // its first request, so a background agent never holds the alert off.
   on('turn.start', async ($, e, next) => {
@@ -1015,7 +988,9 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // Stop's work again, for when a plugin above skips classic.Stop (#5712).
+  // The TTL is read once the turn's rows are on disk. The mod registers no
+  // classic hook: a managed plugin above it skips them on Team and Enterprise
+  // logins, and Claude Code prints a line saying so (#5712, #5779).
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     await dropTurn($, e.turnId)
@@ -1026,7 +1001,7 @@ export const register: Register = on => {
       await refreshTtl($)
       await writeSessionFile($)
     } catch {
-      // as at Stop
+      // the TTL falls back to the previous value or the account's
     }
     return result
   })
