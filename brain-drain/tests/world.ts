@@ -6,6 +6,8 @@ import type { On, SessionRateLimit } from 'claude-code'
 export const HOME = '/h'
 export const SID = 'abcdef12-0000-0000-0000-000000000000'
 export const ROOT = '/work/proj'
+/** Where Claude Code keeps a session's transcript: the project folder, every other character a dash. */
+export const transcript = (sid = SID) => `${HOME}/.claude/projects/${ROOT.replace(/[^A-Za-z0-9]/g, '-')}/${sid}.jsonl`
 export const BRIDGE_SETTINGS = { statusLine: { type: 'command', command: '/h/.claude/scripts/context-bridge.sh' } }
 
 export type World = {

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as core from '../hooks/core.ts'
-import { BRIDGE_SETTINGS, HOME, SID, sessionFile, settle, sleep, start, world } from './world.ts'
+import { BRIDGE_SETTINGS, HOME, SID, sessionFile, settle, sleep, start, transcript, world } from './world.ts'
 
 test('bridge detection', () => {
   expect(core.bridgeLive(BRIDGE_SETTINGS)).toBe(true)
@@ -39,23 +39,22 @@ test('without host commands the file is written in place', async ($, on) => {
 })
 
 const STEP_USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 300000, cache_creation_input_tokens: 12000, model: 'claude-opus-5-5' }
+const TURN_END = { turnId: 'main', reason: 'answer', answer: '', durationMs: 1000, isAborted: false } as const
 const TRANSCRIPT_1H = JSON.stringify({ type: 'assistant', timestamp: '2026-10-03T11:00:00Z',
   message: { usage: { cache_creation: { ephemeral_1h_input_tokens: 34038, ephemeral_5m_input_tokens: 0 } } } })
 
 // B1: the bridge never runs under `claude -p`, so the mod must not write there either.
 test('a non-interactive run writes no session file, no account TTL, and spawns nothing', async ($, on) => {
-  const w = world(on, { context: { tokens: 160000, window: 1000000, percent: 16 }, files: { '/t/s.jsonl': TRANSCRIPT_1H } })
+  const w = world(on, { context: { tokens: 160000, window: 1000000, percent: 16 }, files: { [transcript()]: TRANSCRIPT_1H } })
   w.surfaces = []
   on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
   })
-  on('classic.SessionStart', () => ({}))
-  on('classic.Stop', () => ({}))
+  on('turn.complete', () => ({ text: '' }) as never)
   await start($, false)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: '/t/s.jsonl' } as never)
   for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
-  await $.classic.Stop({ transcript_path: '/t/s.jsonl', stop_hook_active: false } as never)
-  expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`))).toEqual([])
+  await $.turn.complete(TURN_END)
+  expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`) && k !== transcript())).toEqual([])
   expect(w.runs).toEqual([])
 })
 
@@ -65,7 +64,6 @@ test('after /clear the new session file starts clean and the old one is left as 
   on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
   })
-  on('classic.SessionStart', () => ({}))
   await start($)
   for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'claude-opus-5-5', messageCount: 1 })) { /* drain */ }
   await settle()
@@ -76,7 +74,8 @@ test('after /clear the new session file starts clean and the old one is left as 
   const NEW = '99999999-0000-0000-0000-000000000000'
   w.sid = NEW
   w.context = { window: 1000000 }
-  await $.classic.SessionStart({ source: 'clear', transcript_path: '/t/new.jsonl' } as never)
+  await w.clock.advance(1000)
+  await settle()
   const after = sessionFile(w, dir, NEW)!
   expect(after).toMatchObject({ session_id: NEW, used_percentage: 0, context_unknown: false, last_api_call_ts: 0, cache_creation_input_tokens: 0 })
   expect(after.model).toBe('claude-opus-5-5')
@@ -129,17 +128,17 @@ test('a main-thread request returns without waiting for the session file move', 
 })
 
 // N3: the output directory follows the status line, re-checked at every turn's end.
-test('re-wiring the status line moves the mod between directories at the next Stop', async ($, on) => {
+test('re-wiring the status line moves the mod between directories at the next turn\'s end', async ($, on) => {
   const w = world(on, { settings: BRIDGE_SETTINGS })
-  on('classic.Stop', () => ({}))
+  on('turn.complete', () => ({ text: '' }) as never)
   await start($)
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
   w.settings = { statusLine: { type: 'command', command: 'my-line.sh' } }
-  await $.classic.Stop({ transcript_path: '/t/none.jsonl', stop_hook_active: false } as never)
+  await $.turn.complete(TURN_END)
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
   w.files.delete(`${HOME}/.claude/fuel-gauge/${SID}.json`)
   w.settings = BRIDGE_SETTINGS
-  await $.classic.Stop({ transcript_path: '/t/none.jsonl', stop_hook_active: false } as never)
+  await $.turn.complete(TURN_END)
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
 })
 

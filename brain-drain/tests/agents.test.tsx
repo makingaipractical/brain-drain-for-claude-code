@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 import * as agentBars from '../hooks/agents.ts'
 import type { DrainAgent } from '../types'
-import { settle, start, world } from './world.ts'
+import { settle, start, transcript, world } from './world.ts'
 
 // One assistant record as Claude Code writes it: one per content block, each with the response's usage.
 function rec(msg: string, block: number, cacheWrite: number, cacheRead: number, out: number, extra: Record<string, unknown> = {}): string {
@@ -119,7 +119,7 @@ describe('rows', () => {
 
 // ---------------------------------------------------------------- end to end, through the mod
 
-const DIR = '/t/s/subagents'
+const DIR = `${transcript().slice(0, -'.jsonl'.length)}/subagents`
 const HINT = { plugin: 'brain-drain', component: 'PromptHint' as const, surface: 'terminal' as const, props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } }
 
 async function ourRows(ui: { findAll: (q: { type: string }) => Promise<{ text: string; props: Record<string, unknown> }[]> }) {
@@ -130,7 +130,7 @@ async function boot($: any, on: any) {
   const w = world(on, {
     context: { tokens: 312000, window: 1000000, percent: 31 },
     files: {
-      '/t/s.jsonl': lines(USER),
+      [transcript()]: lines(USER),
       [`${DIR}/agent-aexec-1.jsonl`]: lines(USER, rec('A', 0, 1000, 5000, 7), rec('A', 1, 1000, 5000, 400)),
       [`${DIR}/agent-aexec-1.meta.json`]: JSON.stringify({ name: 'exec-hooks', agentType: 'opus-executor' }),
       [`${DIR}/workflows/wf_1/agent-awf-2.jsonl`]: lines(rec('W', 0, 0, 3000, 50)),
@@ -139,9 +139,7 @@ async function boot($: any, on: any) {
   })
   for (const k of w.files.keys()) w.mtimes.set(k, w.clock.now() - 600_000)
   on('ui.render', ($2: any, e: any) => { const { Text } = $2.ui.resolve(e); return <Text key="engine">engine hint</Text> })
-  on('classic.SessionStart', () => ({}))
   await start($)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: '/t/s.jsonl' } as never)
   return w
 }
 
@@ -236,11 +234,9 @@ test('an agent the engine lists as running says so, without the question mark', 
 })
 
 test('a session without subagents draws nothing extra', async ($, on) => {
-  const w = world(on, { context: { tokens: 1000, window: 1000000, percent: 1 }, files: { '/t/s.jsonl': lines(USER) } })
+  const w = world(on, { context: { tokens: 1000, window: 1000000, percent: 1 }, files: { [transcript()]: lines(USER) } })
   on('ui.render', ($2: any, e: any) => { const { Text } = $2.ui.resolve(e); return <Text key="engine">engine hint</Text> })
-  on('classic.SessionStart', () => ({}))
   await start($)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: '/t/s.jsonl' } as never)
   await $.command.run(cmd('agents on'))
   const ui = await $.ui.mount(HINT as never)
   expect(await ourRows(ui as never)).toHaveLength(1)

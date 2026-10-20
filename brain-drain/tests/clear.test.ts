@@ -1,10 +1,10 @@
 // /clear and a /resume in the same process, as Claude Code 2.1.300 does them: a
-// new session id, every `$.state` value empty, classic.SessionStart fires and
-// session.start does not.
+// new session id, every `$.state` value empty, and no session.start. The mod has
+// no classic hook (#5779), so its 1-second tick notices the new id.
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { BRIDGE_SETTINGS, HOME, SID, sessionFile, settle, start, world } from './world.ts'
+import { BRIDGE_SETTINGS, HOME, SID, sessionFile, settle, start, transcript, world } from './world.ts'
 import type { World, WorldOptions } from './world.ts'
 
 const NEW = '99999999-0000-0000-0000-000000000000'
@@ -21,8 +21,6 @@ function host(on: On, o: WorldOptions = {}): World {
   on('turn.step', async function* ($2: unknown, e: { turnId: string; index: number }) {
     return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: 'end_turn', usage: STEP_USAGE } as never
   })
-  on('classic.SessionStart', () => ({}))
-  on('classic.Stop', () => ({}))
   return w
 }
 
@@ -35,10 +33,10 @@ async function drain($: Engine, args = ''): Promise<string> {
   return ((await $.command.run(CMD(args))) as { text: string }).text
 }
 
-/** The host's /clear (or, with `source` resume, an in-process /resume) into `sid`. */
-async function clear($: Engine, w: World, sid = NEW, transcript = `/t/${sid}.jsonl`, source = 'clear'): Promise<void> {
+/** The host's /clear (or a /resume) into `sid`, and the tick that follows it. */
+async function clear(w: World, sid = NEW): Promise<void> {
   w.clear(sid)
-  await $.classic.SessionStart({ source, transcript_path: transcript } as never)
+  await w.clock.advance(1000)
   await settle()
 }
 
@@ -47,7 +45,7 @@ test('after a /clear the new session file is written to the shadow directory whi
   await start($)
   await step($)
   w.context = { window: 1000000 }
-  await clear($, w)
+  await clear(w)
   expect(sessionFile(w, SHADOW, NEW)).toMatchObject({ writer: 'mod', session_id: NEW, used_percentage: 0 })
   expect(sessionFile(w, PRIMARY, NEW)).toBeUndefined()
   expect(await drain($)).toContain('(shadow copy:')
@@ -58,7 +56,7 @@ test('after a /clear the new session file is written to the extension directory 
   await start($)
   await step($)
   w.context = { window: 1000000 }
-  await clear($, w)
+  await clear(w)
   expect(sessionFile(w, PRIMARY, NEW)).toMatchObject({ writer: 'mod', session_id: NEW })
   expect(sessionFile(w, SHADOW, NEW)).toBeUndefined()
   expect(await drain($)).not.toContain('not an interactive session')
@@ -67,15 +65,15 @@ test('after a /clear the new session file is written to the extension directory 
 test('after a /clear the cache clock uses the account TTL before any request, not the 5-minute default', async ($, on) => {
   const w = host(on, { settings: BRIDGE_SETTINGS, files: { [`${PRIMARY}/account_ttl.json`]: ACCOUNT_1H } })
   await start($)
-  await clear($, w, NEW, '/t/no-rows-yet.jsonl')
+  await clear(w)
   expect(await drain($)).toContain('TTL 1h (account)')
   expect(sessionFile(w, SHADOW, NEW)).toMatchObject({ detected_ttl: 3600 })
 })
 
-test('after a /clear the TTL is read from the transcript named by SessionStart', async ($, on) => {
-  const w = host(on, { files: { [`/t/${NEW}.jsonl`]: ROW_1H } })
+test('after a /clear the TTL is read from the new session\'s transcript', async ($, on) => {
+  const w = host(on, { files: { [transcript(NEW)]: ROW_1H } })
   await start($)
-  await clear($, w)
+  await clear(w)
   expect(await drain($)).toContain('TTL 1h (transcript)')
   expect(sessionFile(w, PRIMARY, NEW)).toMatchObject({ detected_ttl: 3600 })
 })
@@ -92,7 +90,7 @@ test('the first request after a /clear gives a percentage, though no SessionStar
 test('the stored style survives a /clear, and a /drain change after it keeps the other stored prefs', async ($, on) => {
   const w = host(on, { store: { prefs: { style: 'bars', sound: true, warnSeconds: 90 } } })
   await start($)
-  await clear($, w)
+  await clear(w)
   const report = await drain($)
   expect(report).toContain('style bars')
   expect(report).toContain('alert 90 s')
@@ -108,8 +106,8 @@ test('a /resume in the same process reads the mod\'s own earlier file for that s
   const before = sessionFile(w, PRIMARY, SID)!
   expect(before).toMatchObject({ detected_ttl: 3600, used_percentage: 31, model: 'claude-opus-5-5' })
   w.context = { window: 1000000 }
-  await clear($, w)
-  await clear($, w, SID, '/t/none.jsonl', 'resume')
+  await clear(w)
+  await clear(w, SID)
   expect(await drain($)).toContain('TTL 1h (previous)')
   expect(await drain($, 'styles')).toContain('with this session\'s figures')
   expect(sessionFile(w, PRIMARY, SID)).toMatchObject({ used_percentage: 31, model: 'claude-opus-5-5', last_api_call_ts: before.last_api_call_ts })
@@ -124,7 +122,7 @@ test('the timers are registered once: a /clear does not add a second tick', asyn
   await w.clock.advance(1000)
   const perSecond = w.invalidates - n0
   expect(perSecond).toBeGreaterThan(0)
-  await clear($, w)
+  await clear(w)
   await step($, 't2')
   const n1 = w.invalidates
   await w.clock.advance(1000)
@@ -139,11 +137,11 @@ test('a host that keeps $.state across /clear still follows the id, and nothing 
   w.store.set('prefs', { style: 'bars' })
   w.context = { window: 1000000 }
   w.sid = NEW
-  await $.classic.SessionStart({ source: 'clear', transcript_path: `/t/${NEW}.jsonl` } as never)
+  await w.clock.advance(1000)
   await settle()
   expect(sessionFile(w, PRIMARY, NEW)).toMatchObject({ session_id: NEW, used_percentage: 0, last_api_call_ts: 0 })
   w.sid = SID
-  await $.classic.SessionStart({ source: 'resume', transcript_path: '/t/none.jsonl' } as never)
+  await w.clock.advance(1000)
   await settle()
   const report = await drain($)
   expect(report).toContain('TTL 1h (previous)')
@@ -155,7 +153,7 @@ test('a session that did not report itself interactive stays without a file afte
   // An attached surface, as in Anthropic's VS Code chat panel, though session.start said not interactive.
   const w = host(on)
   await start($, false)
-  await clear($, w)
+  await clear(w)
   await step($)
   expect(sessionFile(w, PRIMARY, NEW)).toBeUndefined()
   expect(sessionFile(w, SHADOW, NEW)).toBeUndefined()
@@ -170,7 +168,6 @@ test('an in-process /resume is followed within a second, with no event and no re
     detected_ttl: 3600, last_api_call_ts: lastApi, model: 'claude-sonnet-5-5' })
   const w = host(on, { context: { tokens: 310000, window: 1000000, percent: 31 }, files: { [`${PRIMARY}/${RES}.json`]: own } })
   await start($)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: `/t/${SID}.jsonl` } as never)
   await step($)
   w.context = { window: 1000000 }
   w.sid = RES
@@ -184,8 +181,7 @@ test('an in-process /resume is followed within a second, with no event and no re
 test('a hook before session.start writes nothing; session.start then seeds the true value and writes the file', async ($, on) => {
   // A surface is attached, as in the VS Code chat panel, so a guess from surfaces would say interactive.
   const w = host(on)
-  await $.classic.SessionStart({ source: 'startup', transcript_path: `/t/${SID}.jsonl` } as never)
-  await settle()
+  await step($)
   expect(sessionFile(w, PRIMARY, SID)).toBeUndefined()
   expect(sessionFile(w, SHADOW, SID)).toBeUndefined()
   await start($)
