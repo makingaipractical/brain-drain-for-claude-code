@@ -46,6 +46,27 @@ test('classic.Stop reads the TTL from the transcript tail, widening past a big r
   expect(file.project_dir).toBe(ROOT)
 })
 
+// #5712: a managed plugin above skips both classic hooks, so no event names the transcript.
+test('with no classic event, the turn end finds the transcript and reads the TTL', async ($, on) => {
+  const path = `${HOME}/.claude/projects/-work-proj/${SID}.jsonl`
+  const w = world(on, { files: { [path]: usage(34038, 0, '2026-10-03T11:00:00Z') } })
+  on('turn.complete', () => ({ text: '' }))
+  await start($)
+  await $.turn.complete({ turnId: 'main', reason: 'answer', answer: '', durationMs: 1000, isAborted: false })
+  const file = JSON.parse(w.files.get(`${HOME}/.claude/fuel-gauge/${SID}.json`)!)
+  expect(file.detected_ttl).toBe(3600)
+  expect(w.runs.some(r => r[0] === 'tail' && r.includes(path))).toBe(true)
+})
+
+test('a subagent turn end reads no transcript', async ($, on) => {
+  const path = `${HOME}/.claude/projects/-work-proj/${SID}.jsonl`
+  const w = world(on, { files: { [path]: usage(34038, 0, '2026-10-03T11:00:00Z') } })
+  on('turn.complete', () => ({ text: '' }))
+  await start($)
+  await $.turn.complete({ turnId: 'sub', agentId: 'a1', reason: 'answer', answer: '', durationMs: 1000, isAborted: false })
+  expect(w.runs.some(r => r[0] === 'tail')).toBe(false)
+})
+
 // S4: a cache kept warm by something else must not pass for the 1-hour tier while the transcript says 5 minutes.
 test('the warm-gap upgrade defers to the transcript', async ($, on) => {
   const path = '/t/s.jsonl'

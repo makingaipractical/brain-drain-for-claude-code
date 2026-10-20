@@ -233,7 +233,31 @@ async function tail($: $, path: string, bytes: number, size: number): Promise<st
   return text.slice(Math.max(0, text.length - bytes))
 }
 
+/**
+ * The classic events carry the transcript's path, but a managed plugin above the
+ * mod may skip its classic hooks: on a Team org, Claude Code 2.1.304's own
+ * cc-plugin-sec-default does so every time (#5712). Then the path is where
+ * Claude Code keeps it, the project folder with every other character a dash,
+ * and is kept only if the file is there.
+ */
+async function findTranscript($: $): Promise<void> {
+  const m = await getMeta($)
+  const id = await $.session.id()
+  if (!m.home || m.transcriptPath?.endsWith(`/${id}.jsonl`)) return
+  for (const dir of new Set([await $.session.root(), await $.session.cwd()])) {
+    const path = `${m.home}/.claude/projects/${dir.replace(/[^A-Za-z0-9]/g, '-')}/${id}.jsonl`
+    try {
+      await $.fs.stat(path)
+    } catch {
+      continue
+    }
+    await patchMeta($, { transcriptPath: path })
+    return
+  }
+}
+
 async function refreshTtl($: $): Promise<void> {
+  await findTranscript($)
   const m = await getMeta($)
   const path = m.transcriptPath
   if (!path || !m.outDir) return
@@ -991,9 +1015,19 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Stop's work again, for when a plugin above skips classic.Stop (#5712).
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     await dropTurn($, e.turnId)
+    if (e.agentId !== undefined) return result
+    try {
+      await ensureSeeded($)
+      await refreshOutDir($)
+      await refreshTtl($)
+      await writeSessionFile($)
+    } catch {
+      // as at Stop
+    }
     return result
   })
 

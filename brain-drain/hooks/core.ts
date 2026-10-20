@@ -292,7 +292,7 @@ function coldRows(v: View): Row[] {
 function candidates(style: DrainStyle, v: View): Row[] {
   switch (style) {
     case 'minimal':
-      // The model goes first when space is short, then the 5-hour reset time.
+      // Widest first. When space is short, the model is dropped first, then the 5-hour reset time.
       return [minimalRow(v, true, true), minimalRow(v, false, true), minimalRow(v, false, false), compactRow(v, true), compactRow(v, false)]
     case 'bars':
       return [barsRow(v, true, true), barsRow(v, false, true), barsRow(v, false, false), compactRow(v, true), compactRow(v, false)]

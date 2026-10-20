@@ -3,6 +3,14 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
+## Unreleased
+
+- **The exact cache TTL on a Team account.** Claude Code 2.1.304 on a Team plan runs a built-in
+  security plugin ahead of every mod, and it skips the mod's start-of-session and
+  end-of-turn hooks, which were the only place the mod learned where the session's transcript is. The
+  mod now finds the transcript itself and reads it when the turn ends, so the TTL is read from the
+  transcript again instead of carried over from the last session.
+
 ## 0.2.0 — 2026-10-15
 
 - **When the 5-hour window resets.** The default style shows it beside the 5-hour figure, in your
