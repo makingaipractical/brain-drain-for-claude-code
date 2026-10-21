@@ -1,7 +1,7 @@
 {
   "name": "brain-drain",
   "displayName": "Brain Drain for Claude Code",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "How full Claude's context is, when its cache goes cold, and how much of your 5-hour and weekly limits is left — right under the prompt in Claude Code.",
   "author": { "name": "MakingAIPractical" },
   "types": "./types/index.d.ts"

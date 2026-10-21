@@ -3,7 +3,7 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
-## Unreleased
+## 0.2.1 — 2026-10-21
 
 - **The exact cache TTL on a Team account.** Claude Code 2.1.304 on a Team plan runs a built-in
   security plugin ahead of every mod, and it skips the mod's start-of-session and

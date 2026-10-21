@@ -78,7 +78,7 @@ BRAIN_DRAIN_NOTIFY='{"context":[30,35],"5h":[80],"text":{"context:35":"stop and 
 
 ## Install
 
-Requires Claude Code v2.1.287 or later (the first version with mods). Tested with v2.1.300 on
+Requires Claude Code v2.1.287 or later (the first version with mods). Tested with v2.1.306 on
 macOS, and with v2.1.301 on Linux (Ubuntu 24.04, arm64, in a dev container). Windows untested.
 
 ```
