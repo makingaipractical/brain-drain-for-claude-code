@@ -115,7 +115,7 @@ async function doWriteSessionFile($: $): Promise<void> {
   await syncSession($)
   // Who holds the status line is checked before every write, not only at a
   // turn's end: after Connect Status Line the bridge writes the extension's
-  // directory at once, and a long turn must not keep writing it too (#4983).
+  // directory at once, and a long turn must not keep writing it too (MC-4983).
   await refreshOutDir($)
   const m = await getMeta($)
   const r = await read($, reading)
@@ -234,7 +234,7 @@ async function tail($: $, path: string, bytes: number, size: number): Promise<st
 
 /**
  * No mod event names the transcript, and the classic events that do are skipped
- * on a Team org by Claude Code 2.1.304's own cc-plugin-sec-default (#5712). So
+ * on a Team org by Claude Code 2.1.304's own cc-plugin-sec-default (MC-5712). So
  * the path is where Claude Code keeps it, the project folder with every other
  * character a dash, under CLAUDE_CONFIG_DIR when it is set, and is kept only if
  * the file is there.
@@ -989,8 +989,8 @@ export const register: Register = on => {
   })
 
   // The TTL is read once the turn's rows are on disk. The mod registers no
-  // classic hook: a managed plugin above it skips them on Team and Enterprise
-  // logins, and Claude Code prints a line saying so (#5712, #5779).
+  // classic hook: a managed plugin above it skips them on Team
+  // logins, and Claude Code prints a line saying so (MC-5712, MC-5779).
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     await dropTurn($, e.turnId)

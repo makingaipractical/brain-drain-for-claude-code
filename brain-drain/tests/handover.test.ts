@@ -142,7 +142,7 @@ test('re-wiring the status line moves the mod between directories at the next tu
   expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
 })
 
-// #4983: a turn that runs on after Connect Status Line stops writing the
+// MC-4983: a turn that runs on after Connect Status Line stops writing the
 // extension's directory at its next request, not at the turn's end.
 test('connecting the bridge mid-turn moves the mod out at the next request, with no Stop between', async ($, on) => {
   const w = world(on, { context: { tokens: 310000, window: 1000000, percent: 31 } })

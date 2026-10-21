@@ -421,7 +421,7 @@ type CacheUsage = Pick<StepUsage, 'cache_read_input_tokens' | 'cache_creation_in
  * The context fill one request reports: the three input counters the status line
  * sums, over the same raw window, rounded as the bridge's figure is. Set on every
  * request so a long turn does not show its first request's fill until the turn
- * ends; session.measure still has the last word at turn end (#4986).
+ * ends; session.measure still has the last word at turn end (MC-4986).
  */
 export function stepFill(usage: StepUsage, window: number | undefined): { tokens: number; percent?: number; unknown: false } {
   const tokens = usage.input_tokens + usage.cache_read_input_tokens + usage.cache_creation_input_tokens

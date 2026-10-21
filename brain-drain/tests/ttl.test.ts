@@ -46,7 +46,7 @@ test('the turn end reads the TTL from the transcript tail, widening past a big r
   expect(file.project_dir).toBe(ROOT)
 })
 
-// #5779: a managed plugin above skips classic hooks on Team and Enterprise logins, and
+// MC-5779: a managed plugin above skips classic hooks on a Team login, and
 // Claude Code prints a line for each one it skips. The mod registers none.
 test('the mod registers no classic hook', () => {
   const names: string[] = []
@@ -55,7 +55,7 @@ test('the mod registers no classic hook', () => {
   expect(names.filter(n => n.startsWith('classic.'))).toEqual([])
 })
 
-// #5712: no event names the transcript, so the mod finds it where Claude Code keeps it.
+// MC-5712: no event names the transcript, so the mod finds it where Claude Code keeps it.
 test('the turn end finds the transcript and reads the TTL', async ($, on) => {
   const path = transcript()
   const w = world(on, { files: { [path]: usage(34038, 0, '2026-10-03T11:00:00Z') } })

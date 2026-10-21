@@ -1,6 +1,6 @@
 // /clear and a /resume in the same process, as Claude Code 2.1.300 does them: a
 // new session id, every `$.state` value empty, and no session.start. The mod has
-// no classic hook (#5779), so its 1-second tick notices the new id.
+// no classic hook (MC-5779), so its 1-second tick notices the new id.
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'

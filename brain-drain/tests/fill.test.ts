@@ -3,7 +3,7 @@ import type { TurnStepResult } from 'claude-code'
 import * as core from '../hooks/core.ts'
 import { start, world, settle, SID } from './world.ts'
 
-// #4986: the fill used to change only at session.measure, which fires after a
+// MC-4986: the fill used to change only at session.measure, which fires after a
 // turn, so every write inside a long turn carried the turn's first request.
 
 test('the fill is the three input counters over the window, rounded', () => {
