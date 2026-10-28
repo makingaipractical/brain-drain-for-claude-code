@@ -27,6 +27,7 @@ describe('counting', () => {
     expect(acc.requests).toBe(2)
     expect(acc.output).toBe(395)
     expect(acc.tokens).toBe(2 + 1000 + 5000 + 385 + (2 + 6000 + 10))
+    expect(acc.context).toBe(2 + 6000 + 10)
     expect(acc.model).toBe('claude-opus-5-5')
     expect(acc.effort).toBe('high')
   })
@@ -41,11 +42,13 @@ describe('counting', () => {
     expect(acc.offset).toBe(done.length)
     expect(acc.requests).toBe(1)
     expect(acc.output).toBe(7)
+    expect(acc.context).toBe(2 + 1000 + 5000 + 7)
     agentBars.feed(acc, file.slice(acc.offset))
     expect(acc.offset).toBe(file.length)
     expect(acc.requests).toBe(2)
     expect(acc.output).toBe(320)
     expect(acc.tokens).toBe(2 + 1000 + 5000 + 300 + (2 + 8000 + 20))
+    expect(acc.context).toBe(2 + 8000 + 20)
   })
 
   test('the offset counts UTF-8 bytes, not characters', () => {
@@ -72,21 +75,44 @@ describe('counting', () => {
 })
 
 const NOW = Date.UTC(2026, 9, 10, 12, 0, 0)
-const agent = (label: string, tokens: number, output: number, agoS: number, extra: Partial<DrainAgent> = {}): DrainAgent => ({
-  id: `a${label}`, label, tokens, output, requests: 10, model: 'claude-opus-5-5', effort: 'high', mtimeMs: NOW - agoS * 1000, ...extra,
+const agent = (label: string, context: number, output: number, agoS: number, extra: Partial<DrainAgent> = {}): DrainAgent => ({
+  id: `a${label}`, label, context, tokens: context * 10, output, requests: 10, model: 'claude-opus-5-5', effort: 'high', mtimeMs: NOW - agoS * 1000, ...extra,
 })
 
 describe('rows', () => {
-  test('one row per agent, bars scaled to the largest, a guessed running state, one total line', () => {
+  test('one row per agent showing its context, bars scaled to the largest, a guessed running state, one total line', () => {
     const text = agentBars.agentText([
-      agent('rename-executor', 1_258_861, 11_676, 300, { effort: 'medium' }),
-      agent('agent-bars', 354_129, 3_329, 5),
+      agent('rename-executor', 127_592, 11_676, 300, { effort: 'medium', tokens: 1_258_861 }),
+      agent('agent-bars', 88_185, 3_329, 5, { tokens: 354_129 }),
     ], NOW)
     expect(text).toBe([
-      '  agent-bars      ▰▰▰▱▱▱▱▱▱▱ 354k  out 3k   opus·high  running?',
-      '  rename-executor ▰▰▰▰▰▰▰▰▰▰ 1.3M  out 12k  opus·medium',
-      '  2 agents · 1.6M tokens · 15k out',
+      '  agent-bars      ▰▰▰▰▰▰▰▱▱▱  88k  out 3k   opus·high  running?',
+      '  rename-executor ▰▰▰▰▰▰▰▰▰▰ 128k  out 12k  opus·medium',
+      '  2 agents · 1.6M tokens processed · 15k out',
     ].join('\n'))
+  })
+
+  // MC-6284: a screenshot of 27 October 16:31, three opus-executor agents of one session, with
+  // their transcripts' figures at 16:31:07. The rows used to show the summed column
+  // (923k, 3.5M, 3M) where Claude Code reports each agent's context (it said 157k and 129k for the
+  // two finished ones).
+  test('the 27 October screenshot: each row is the agent\'s context, the total line the sum of every request', () => {
+    const text = agentBars.agentText([
+      agent('opus-executor', 155_788, 29_002, 600, { id: 'a08f', tokens: 3_544_545, status: 'completed' }),
+      agent('opus-executor', 127_592, 40_147, 3000, { id: 'a52c', tokens: 2_992_824, status: 'completed' }),
+      agent('opus-executor', 88_185, 8_010, 1, { id: 'a5ac', tokens: 923_572, status: 'running' }),
+    ], NOW)
+    expect(text).toBe([
+      '  opus-executor ▰▰▰▰▰▰▱▱▱▱  88k  out 8k   opus·high  running',
+      '  opus-executor ▰▰▰▰▰▰▰▰▰▰ 156k  out 29k  opus·high',
+      '  opus-executor ▰▰▰▰▰▰▰▰▱▱ 128k  out 40k  opus·high',
+      '  3 agents · 7.5M tokens processed · 77k out',
+    ].join('\n'))
+  })
+
+  test('a row stored before the context field existed draws as zero, not NaN', () => {
+    const old = { ...agent('old', 0, 10, 600), context: undefined } as unknown as DrainAgent
+    expect(agentBars.agentText([old], NOW)).toContain('▱▱▱▱▱▱▱▱▱▱ 0')
   })
 
   test('the engine\'s own word beats the guess', () => {
@@ -100,15 +126,15 @@ describe('rows', () => {
   })
 
   test('at most five rows, then +N more on the total line', () => {
-    const many = Array.from({ length: 7 }, (_, i) => agent(`a${i}`, (i + 1) * 100_000, 1000, 100 + i))
+    const many = Array.from({ length: 7 }, (_, i) => agent(`a${i}`, (i + 1) * 10_000, 1000, 100 + i))
     const rows = agentBars.agentRows(many, NOW)
     expect(rows).toHaveLength(6)
-    expect(rows.map(r => r.map(s => s.text).join(''))[5]).toBe('  7 agents · 2.8M tokens · 7k out · +2 more')
+    expect(rows.map(r => r.map(s => s.text).join(''))[5]).toBe('  7 agents · 2.8M tokens processed · 7k out · +2 more')
   })
 
   test('a narrow terminal drops the output and the model before the bar', () => {
-    const rows = agentBars.agentRows([agent('rename-executor', 1_258_861, 11_676, 300)], NOW, 40).map(r => r.map(s => s.text).join(''))
-    expect(rows[0]).toBe('  rename-executor ▰▰▰▰▰▰▰▰▰▰ 1.3M')
+    const rows = agentBars.agentRows([agent('rename-executor', 127_592, 11_676, 300)], NOW, 40).map(r => r.map(s => s.text).join(''))
+    expect(rows[0]).toBe('  rename-executor ▰▰▰▰▰▰▰▰▰▰ 128k')
     for (const r of rows) expect([...r].length).toBeLessThanOrEqual(40)
   })
 
@@ -161,7 +187,7 @@ test('off by default; on, it reads every agent once, then only what each file ga
   expect(rows).toHaveLength(4)
   expect(rows[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 6k  out 400  opus·high')
   expect(rows[2]).toBe('  general-purpose ▰▰▰▰▰▱▱▱▱▱ 3k  out 50   opus·high')
-  expect(rows[3]).toBe('  2 agents · 9k tokens · 450 out')
+  expect(rows[3]).toBe('  2 agents · 9k tokens processed · 450 out')
   await ui.unmount()
 
   // The agent writes another response: the next refresh reads from where the last one stopped.
@@ -176,7 +202,8 @@ test('off by default; on, it reads every agent once, then only what each file ga
   expect(tails).toEqual([['tail', '-c', `+${before + 1}`, path]])
   ui = await $.ui.mount(HINT as never)
   const after = await ourRows(ui as never)
-  expect(after[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 27k  out 500  opus·high  running?')
+  // The row is the latest response (20k), not the sum of both (27k).
+  expect(after[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 20k  out 500  opus·high  running?')
   await ui.unmount()
 
   // No growth, no reads.
@@ -185,7 +212,7 @@ test('off by default; on, it reads every agent once, then only what each file ga
   await settle()
   expect(w.runs.filter(r => r[0] === 'tail')).toHaveLength(0)
 
-  expect(((await $.command.run(cmd('agents'))) as { text: string }).text).toContain('2 agents · 30k tokens')
+  expect(((await $.command.run(cmd('agents'))) as { text: string }).text).toContain('2 agents · 30k tokens processed')
   await $.command.run(cmd('agents off'))
   ui = await $.ui.mount(HINT as never)
   expect(await ourRows(ui as never)).toHaveLength(1)
@@ -204,7 +231,7 @@ test('the first read takes the file whole; an addition longer than one tail catc
   await settle()
   expect(w.runs.filter(r => r[0] === 'tail' && r[3] === path).length).toBeGreaterThan(1)
   const ui = await $.ui.mount(HINT as never)
-  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 9k  out 430  opus·high')
+  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▱▱▱▱▱▱▱ 1k  out 430  opus·high')
   await ui.unmount()
 })
 
@@ -218,7 +245,7 @@ test('a line longer than one read is passed over, not stalled on', async ($, on)
   await w.clock.advance(5000)
   await settle()
   const ui = await $.ui.mount(HINT as never)
-  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▰▰▰▰▰▰▰ 7k  out 410  opus·high')
+  expect((await ourRows(ui as never))[1]).toBe('  exec-hooks      ▰▰▰▱▱▱▱▱▱▱ 1k  out 410  opus·high')
   await ui.unmount()
 })
 

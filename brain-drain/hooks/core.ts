@@ -576,7 +576,7 @@ export const HELP = [
   '/drain place below|above  draw under the prompt (default) or in the band above it',
   '/drain warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
   '/drain sound on|off   play a short chime with the alert (off by default)',
-  '/drain agents on|off  prototype: one token bar per subagent under the gauge (off by default)',
+  '/drain agents on|off  prototype: one bar per subagent under the gauge, its context (off by default)',
   '/drain agents         the subagent rows as text',
   '/drain notify on|off  self-notice: one line of facts to the model when a threshold is crossed (off by default)',
   '/drain notify         the self-notice settings and the note as it would read now',

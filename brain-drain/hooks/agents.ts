@@ -25,13 +25,15 @@ export type Acc = {
   seen: Record<string, [number, number]>
   tokens: number
   output: number
+  /** The latest response's input + cache write + cache read + output: the agent's context now. */
+  context: number
   requests: number
   model?: string
   effort?: string
 }
 
 export function newAcc(): Acc {
-  return { offset: 0, seen: {}, tokens: 0, output: 0, requests: 0 }
+  return { offset: 0, seen: {}, tokens: 0, output: 0, context: 0, requests: 0 }
 }
 
 /** UTF-8 bytes a string takes; the module has no TextEncoder to ask. */
@@ -78,6 +80,8 @@ function take(acc: Acc, line: string): void {
   if (key !== undefined) acc.seen[key] = [input, out]
   acc.tokens += input + out
   acc.output += out
+  // Records come in the order they were written, so the last one seen is the latest response.
+  acc.context = input + out
   if (typeof m.model === 'string') acc.model = m.model
   if (typeof r.effort === 'string') acc.effort = r.effort
 }
@@ -133,14 +137,19 @@ const LEVELS: Level[] = [
   { cells: 5, out: false, model: false, labelMax: 12 },
 ]
 
+/** An agent's context now; a row stored before the field existed reads 0 until the next refresh. */
+const ctx = (a: DrainAgent): number => a.context ?? 0
+
 /**
  * The rows under the gauge: one per agent (active first, then the most recently
- * written, at most MAX_ROWS), each bar scaled to the session's largest agent,
- * then one total line. Empty when the session has no agents.
+ * written, at most MAX_ROWS), each showing the agent's context now (the figure
+ * Claude Code reports when the agent finishes) with its bar scaled to the
+ * session's largest, then one total line summing every request's tokens.
+ * Empty when the session has no agents.
  */
 export function agentRows(agents: DrainAgent[], nowMs: number, cols?: number): Row[] {
   if (agents.length === 0) return []
-  const max = Math.max(1, ...agents.map(a => a.tokens))
+  const max = Math.max(1, ...agents.map(ctx))
   const ranked = [...agents].sort((a, b) => {
     const act = Number(activity(b, nowMs) !== undefined) - Number(activity(a, nowMs) !== undefined)
     return act !== 0 ? act : b.mtimeMs - a.mtimeMs
@@ -152,11 +161,11 @@ export function agentRows(agents: DrainAgent[], nowMs: number, cols?: number): R
 
   const build = (lv: Level): Row[] => {
     const width = Math.min(lv.labelMax, Math.max(...shown.map(a => [...a.label].length)))
-    const tokW = Math.max(...shown.map(a => fmtTokens(a.tokens).length))
+    const tokW = Math.max(...shown.map(a => fmtTokens(ctx(a)).length))
     const outW = Math.max(...shown.map(a => fmtTokens(a.output).length))
     const rows: Row[] = shown.map(a => {
-      const row: Row = [{ text: `  ${fit(a.label, width)} `, dim: true }, ...bar(a.tokens / max, lv.cells, undefined)]
-      row.push({ text: ` ${fmtTokens(a.tokens).padStart(tokW)}` })
+      const row: Row = [{ text: `  ${fit(a.label, width)} `, dim: true }, ...bar(ctx(a) / max, lv.cells, undefined)]
+      row.push({ text: ` ${fmtTokens(ctx(a)).padStart(tokW)}` })
       if (lv.out) row.push({ text: `  out ${fmtTokens(a.output).padEnd(outW)}`, dim: true })
       const model = shortModel(a.model)
       const effort = effortLabel(a.effort)
@@ -165,7 +174,7 @@ export function agentRows(agents: DrainAgent[], nowMs: number, cols?: number): R
       if (act) row.push({ text: `  ${act}` })
       return row
     })
-    const sum: Seg[] = [{ text: `  ${agents.length} agent${agents.length === 1 ? '' : 's'} · ${fmtTokens(total)} tokens`, dim: true }]
+    const sum: Seg[] = [{ text: `  ${agents.length} agent${agents.length === 1 ? '' : 's'} · ${fmtTokens(total)} tokens processed`, dim: true }]
     if (lv.out) sum.push({ text: ` · ${fmtTokens(output)} out`, dim: true })
     if (more > 0) sum.push({ text: ` · +${more} more`, dim: true })
     rows.push(sum)

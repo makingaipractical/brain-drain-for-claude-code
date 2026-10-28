@@ -3,6 +3,14 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
+## Unreleased
+
+- **Subagent rows show each agent's context.** With `/drain agents on`, a row's number and bar were
+  every request of that agent added up, cache re-reads included, so an agent holding 156k of
+  context read 3.5M. A row now shows the agent's context as of its latest request, the same figure
+  Claude Code reports when the agent finishes. The added-up figure stays on the total line, now
+  called "tokens processed".
+
 ## 0.2.1 — 2026-10-21
 
 - **The exact cache TTL on a Team account.** Claude Code 2.1.304 on a Team plan runs a built-in

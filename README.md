@@ -121,7 +121,7 @@ with your Claude Code version.
 | `/drain warn <seconds>` | Lead time of the expiry notice (default 60; 0 turns it off) |
 | `/drain sound on\|off` | A short chime with the expiry notice (off by default) |
 | `/drain notify ...` | The notice to Claude, above; `/drain notify` shows its settings |
-| `/drain agents on\|off` | Prototype: one token bar per subagent under the gauge (off by default) |
+| `/drain agents on\|off` | Prototype: one bar per subagent under the gauge, showing its context (off by default) |
 | `/drain help` | The full list |
 
 Styles:
