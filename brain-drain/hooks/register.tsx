@@ -570,6 +570,18 @@ async function unfire($: $, crossed: string[]): Promise<void> {
   await update($, meta, m => ({ ...(m ?? {}), notified: (m?.notified ?? []).filter(k => !crossed.includes(k)) }))
 }
 
+/**
+ * A compaction put the earlier notes into the summary: the context stages are
+ * cleared, so the first figure after it is told again, whether a hook next sees
+ * it unknown or already low. In the notice's queue, so a note being taken
+ * cannot write its marks back over the clearing.
+ */
+function clearContextStages($: $): Promise<unknown> {
+  const run = notifyChain.then(() => update($, meta, m => ({ ...(m ?? {}), notified: (m?.notified ?? []).filter(k => !k.startsWith('context:')) })))
+  notifyChain = run.catch(() => undefined)
+  return run
+}
+
 const THRESHOLD_KIND: Record<string, 'context' | 'fiveHour'> = { context: 'context', '5h': 'fiveHour', '5-hour': 'fiveHour' }
 
 /** Strips one pair of surrounding quotes, as typed in `/drain notify text context 35 "stop"`. */
@@ -584,7 +596,8 @@ async function notifyCommand($: $, args: string): Promise<string> {
   const saved = notify.sanitize((await getPrefs($)).notify)
   const m = await getMeta($)
   const save = async (change: Partial<DrainNotify>) => {
-    const set = { ...((await storedNotify($)) ?? {}), ...change }
+    // `v` marks a block this version stored, so it is never read as the one 0.2.1 saved along.
+    const set = { ...((await storedNotify($)) ?? {}), ...change, v: 2 }
     await setPrefs($, { notify: notify.sanitize(set) }, set)
   }
   const envNote = m.notifyEnv ? ` This run follows ${notify.ENV_NAME}, which overrides the saved settings until it ends.` : ''
@@ -643,7 +656,8 @@ async function notifyCommand($: $, args: string): Promise<string> {
       return 'Use /drain notify text context 35 "your text", /drain notify text 5h 80 "your text" or /drain notify text week "your text". Leave the text out to clear it.'
     }
     const text = unquote(args.trim().split(/\s+/).slice(restStart).join(' '))
-    const next = { ...saved.text }
+    // From the store, as the other fields are: a text another session saved meanwhile stays.
+    const next = { ...notify.sanitize(await storedNotify($)).text }
     if (text === '') delete next[key]
     else next[key] = text
     await save({ text: next })
@@ -967,6 +981,16 @@ export const register: Register = on => {
       }
     } catch (err) {
       $.ui.log(`brain-drain: turn.step: ${String(err)}`, { to: 'debug' })
+    }
+    return result
+  })
+
+  // Observe only: the compaction goes back exactly as it came. A subagent's own
+  // compaction, a precompute (nothing installed) and a skip leave the stages.
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
+      await clearContextStages($).catch(err => $.ui.log(`brain-drain: notify: ${String(err)}`, { to: 'debug' }))
     }
     return result
   })

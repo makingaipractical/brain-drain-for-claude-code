@@ -6,9 +6,11 @@ import { clock, fmtTokens } from './core.ts'
 // which thresholds have fired, and attaches the text.
 
 // On by default for the context stages (MC-6373): a session that is not told
-// does not know to look. 20, 30, 35 and 50 follow a wind-down rule of finishing
-// the piece in hand from 30% and never going past 50%; 70 and 90 come before
-// Claude Code compacts. The 5-hour and weekly thresholds are there to turn on.
+// does not know to look. 20, 30, 35 and 50 serve a project whose own rule winds
+// a session down early (say, finish the piece in hand from 30%, never pass 50%);
+// 70 and 90 come before Claude Code compacts. The levels skill tells the model
+// that a project's rule comes first. The 5-hour and weekly thresholds are there
+// to turn on.
 export const DEFAULT_NOTIFY: DrainNotify = { on: true, context: [20, 30, 35, 50, 70, 90], fiveHour: [], week: false, margin: 5, text: {} }
 
 // 0.2.1 and earlier stored the whole block, defaults included, with any other

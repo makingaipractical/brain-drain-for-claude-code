@@ -15,6 +15,7 @@ const PREFS = { style: 'bars', place: 'below', warnSeconds: 60, sound: false, ag
 const ON = { prefs: { ...PREFS, notify: { on: true, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} } } }
 // The block 0.2.1 saved along with any other /drain change, never touched.
 const LEGACY = { prefs: { ...PREFS, notify: { on: false, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} } } }
+const SUMMARY = [{ role: 'user', text: 'the conversation so far', toolUses: [] }] as never
 const CMD = (args: string) => ({ command: 'drain', args, origin: { kind: 'composer' } as never, presentation: {} as never })
 
 async function setup($: any, on: any, o: WorldOptions = {}, interactive = true) {
@@ -56,7 +57,8 @@ test('a threshold fires once, stays quiet while above, and re-arms after falling
   expect(await toolCall($)).toHaveLength(0)
   w.context = { tokens: 750000, window: 1000000, percent: 75 }
   expect(await submit($)).toHaveLength(0)
-  // A compact: the fill is not known, so nothing fires and nothing re-arms.
+  // A compact: the fill is not known, so nothing fires; the context stages are cleared, and with
+  // these thresholds (70, 90) a figure of 20% is below them all, so nothing fires there either.
   w.context = { window: 1000000 }
   expect(await toolCall($)).toHaveLength(0)
   w.context = { tokens: 200000, window: 1000000, percent: 20 }
@@ -117,7 +119,7 @@ test('on by default at the context stages 20, 30, 35, 50, 70 and 90; /drain noti
   await $.command.run(CMD('notify off'))
   w.sid = 'ffffffff-0000-0000-0000-000000000000'
   expect(await submit($)).toHaveLength(0)
-  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: false })
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: false, v: 2 })
 })
 
 test('after a compaction the first figure is told again, and each stage fires again as it climbs', async ($, on) => {
@@ -149,11 +151,35 @@ test('a 0.2.1 block never touched takes the new defaults; a /drain change stores
   expect((w.store.get('prefs') as Record<string, unknown>).notify).toBeUndefined()
   expect((w.store.get('prefs') as Record<string, unknown>).agents).toBe(true)
   await $.command.run(CMD('notify 5h 80'))
-  expect((w.store.get('prefs') as Record<string, unknown>).notify).toEqual({ fiveHour: [80] })
+  expect((w.store.get('prefs') as Record<string, unknown>).notify).toEqual({ fiveHour: [80], v: 2 })
   const shown = ((await $.command.run(CMD('notify'))) as { text: string }).text
   expect(shown).toContain('Self-notice on')
   expect(shown).toContain('context  20%, 30%, 35%, 50%, 70%, 90%')
   expect(shown).toContain('5h       80%')
+})
+
+test('a compaction clears the context stages however the next figure arrives', async ($, on) => {
+  on('session.compact', () => ({ messages: SUMMARY }))
+  const w = await setup($, on, { store: {} })
+  w.context = { tokens: 720000, window: 1000000, percent: 72 }
+  expect(await toolCall($)).toHaveLength(1)
+  // Auto-compacted mid-turn: no hook sees the figure unknown; the next one already reads 33%.
+  await $.session.compact({ trigger: 'auto', messages: SUMMARY })
+  w.context = { tokens: 330000, window: 1000000, percent: 33 }
+  const [after] = await toolCall($)
+  expect(after).toContain('context 33%')
+  // A precompute installs nothing, and a subagent's compaction is its own: neither clears.
+  await $.session.compact({ trigger: 'precompute', messages: SUMMARY })
+  await $.session.compact({ trigger: 'auto', agentId: 'agent-1', messages: SUMMARY })
+  expect(await toolCall($)).toHaveLength(0)
+})
+
+test('a block this version stored is never read as the 0.2.1 one, even with the same values', async ($, on) => {
+  const same = { prefs: { ...PREFS, notify: { on: false, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {}, v: 2 } } }
+  const w = await setup($, on, { store: same })
+  w.context = { tokens: 720000, window: 1000000, percent: 72 }
+  expect(await submit($)).toHaveLength(0)
+  expect(notify.chosen(same.prefs.notify)).toEqual(same.prefs.notify)
 })
 
 test('a 0.2.1 block the user changed is kept as they left it', async ($, on) => {
