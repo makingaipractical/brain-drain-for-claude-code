@@ -13,9 +13,9 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 
 ## Reading them
 
-1. **The notice line.** With `/drain notify on`, or `BRAIN_DRAIN_NOTIFY` set for the run, Brain Drain adds one line to your context when a threshold is crossed:
-   `Brain Drain: context 71% (712k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)`
-   The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. Any line after it is the user's own instruction for that threshold: follow it.
+1. **The notice line.** Brain Drain adds one line to your context when the context passes 20, 30, 35, 50, 70 and 90%, unless the user turned it off (`/drain notify off`) or set other stages:
+   `Brain Drain: context 31% (312k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)`
+   Each stage is told once, and again after a compaction. The 5-hour and weekly figures ride along as facts; they have thresholds of their own only if the user turned them on. The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. Any line after it is the user's own instruction for that stage: follow it.
 2. **The session file**, when no line has arrived. Brain Drain writes one file per interactive session, named by the session id Claude Code puts in `CLAUDE_CODE_SESSION_ID`:
    ```bash
    f=~/.claude/fuel-gauge-mod/$CLAUDE_CODE_SESSION_ID.json; [ -f "$f" ] || f=~/.claude/fuel-gauge/$CLAUDE_CODE_SESSION_ID.json; cat "$f"
@@ -28,7 +28,10 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 
 The project's own rules on thresholds come first. Where it has none:
 
-- Past 70% context (Brain Drain's first default notice), finish the piece in hand, save it, and write down where you are somewhere that survives compaction (a file, a ticket) before starting anything new.
+- Never call the context full, or wind down for its sake, without a figure. Read it first (above).
+- Below 50% context (the 20, 30 and 35% notices), the line is information: carry on with the work.
+- From 50%, finish the piece in hand and save it before starting anything large.
+- From 70%, compaction is coming: write down where you are somewhere that survives it (a file, a ticket) before starting anything new.
 - With the five-hour window nearly spent, do not fan out subagents: each draws on the same window, and one cut off mid-run leaves half-done work. Work one at a time, or stop at a clean point and name the reset time.
 - With the week above its pace line, prefer the smaller way to the same result.
 

@@ -32,7 +32,7 @@ export type DrainPrefs = {
   sound: boolean
   /** Prototype: per-subagent token bars under the gauge. Off unless asked for. */
   agents: boolean
-  /** The self-notice: a facts-only note to the main session's model when a threshold is crossed. Off unless asked for. */
+  /** The self-notice: a facts-only note to the main session's model when a threshold is crossed. On for the context stages unless turned off; stored with only the fields the user set. */
   notify: DrainNotify
 }
 

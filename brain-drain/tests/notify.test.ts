@@ -10,7 +10,11 @@ const LIMITS = (five: number, week: number) => [
   { kind: 'five_hour', percentUsed: five, resetsAt: iso(NOW + 2 * 3600_000) },
   { kind: 'seven_day', percentUsed: week, resetsAt: iso(NOW + 4 * 86400_000) },
 ]
-const ON = { prefs: { style: 'bars', place: 'below', warnSeconds: 60, sound: false, agents: false, notify: { ...notify.DEFAULT_NOTIFY, on: true } } }
+const PREFS = { style: 'bars', place: 'below', warnSeconds: 60, sound: false, agents: false }
+// A user who turned the notice on in 0.2.1 and kept that release's thresholds: their block is kept as it is.
+const ON = { prefs: { ...PREFS, notify: { on: true, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} } } }
+// The block 0.2.1 saved along with any other /drain change, never touched.
+const LEGACY = { prefs: { ...PREFS, notify: { on: false, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} } } }
 const CMD = (args: string) => ({ command: 'drain', args, origin: { kind: 'composer' } as never, presentation: {} as never })
 
 async function setup($: any, on: any, o: WorldOptions = {}, interactive = true) {
@@ -93,12 +97,74 @@ test('subagents never get the note, and do not use up a threshold', async ($, on
   expect(await toolCall($)).toHaveLength(1)
 })
 
-test('off by default: no note until /drain notify on', async ($, on) => {
+test('on by default at the context stages 20, 30, 35, 50, 70 and 90; /drain notify off stops it', async ($, on) => {
+  const w = await setup($, on, { store: {}, context: { tokens: 150000, window: 1000000, percent: 15 } })
+  expect(await submit($)).toHaveLength(0)
+  w.context = { tokens: 210000, window: 1000000, percent: 21 }
+  const [first] = await toolCall($)
+  expect(first).toMatch(/^Brain Drain: context 21% \(210k of 1M\) · 5-hour window 50%, resets \d\d:\d\d · week 20% \(pace line 48%\)$/)
+  const seen: string[] = []
+  for (const pct of [25, 30, 33, 35, 49, 50, 69, 70, 89, 90, 95]) {
+    w.context = { tokens: pct * 10000, window: 1000000, percent: pct }
+    const notes = await toolCall($)
+    if (notes.length > 0) seen.push(String(pct))
+  }
+  expect(seen).toEqual(['30', '35', '50', '70', '90'])
+  // The 5-hour and weekly thresholds are off unless turned on.
+  w.context = { tokens: 960000, window: 1000000, percent: 96 }
+  w.rateLimits = LIMITS(97, 99)
+  expect(await submit($)).toHaveLength(0)
+  await $.command.run(CMD('notify off'))
+  w.sid = 'ffffffff-0000-0000-0000-000000000000'
+  expect(await submit($)).toHaveLength(0)
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: false })
+})
+
+test('after a compaction the first figure is told again, and each stage fires again as it climbs', async ($, on) => {
   const w = await setup($, on, { store: {} })
+  w.context = { tokens: 360000, window: 1000000, percent: 36 }
+  expect(await submit($)).toHaveLength(1)
+  expect(await toolCall($)).toHaveLength(0)
+  // Compacted: not known until the next reply. Nothing is said then.
+  w.context = { window: 1000000 }
+  expect(await submit($)).toHaveLength(0)
+  // The first figure after it sits above 20%: it is told, though 20 had fired before.
+  w.context = { tokens: 240000, window: 1000000, percent: 24 }
+  const [again] = await toolCall($)
+  expect(again).toContain('context 24%')
+  w.context = { tokens: 310000, window: 1000000, percent: 31 }
+  expect(await toolCall($)).toHaveLength(1)
+  // A compaction seen only as a drop (never unknown at a hook) re-arms the stages it fell below.
+  w.context = { tokens: 120000, window: 1000000, percent: 12 }
+  expect(await toolCall($)).toHaveLength(0)
+  w.context = { tokens: 210000, window: 1000000, percent: 21 }
+  expect(await toolCall($)).toHaveLength(1)
+})
+
+test('a 0.2.1 block never touched takes the new defaults; a /drain change stores only what the user set', async ($, on) => {
+  const w = await setup($, on, { store: LEGACY })
+  w.context = { tokens: 210000, window: 1000000, percent: 21 }
+  expect(await submit($)).toHaveLength(1)
+  await $.command.run(CMD('agents on'))
+  expect((w.store.get('prefs') as Record<string, unknown>).notify).toBeUndefined()
+  expect((w.store.get('prefs') as Record<string, unknown>).agents).toBe(true)
+  await $.command.run(CMD('notify 5h 80'))
+  expect((w.store.get('prefs') as Record<string, unknown>).notify).toEqual({ fiveHour: [80] })
+  const shown = ((await $.command.run(CMD('notify'))) as { text: string }).text
+  expect(shown).toContain('Self-notice on')
+  expect(shown).toContain('context  20%, 30%, 35%, 50%, 70%, 90%')
+  expect(shown).toContain('5h       80%')
+})
+
+test('a 0.2.1 block the user changed is kept as they left it', async ($, on) => {
+  const kept = { prefs: { ...PREFS, notify: { on: false, context: [70, 90], fiveHour: [80, 95], week: false, margin: 5, text: {} } } }
+  const w = await setup($, on, { store: kept })
   w.context = { tokens: 720000, window: 1000000, percent: 72 }
   expect(await submit($)).toHaveLength(0)
-  await $.command.run(CMD('notify on'))
-  expect(await submit($)).toHaveLength(1)
+  expect(notify.chosen(kept.prefs.notify)).toEqual(kept.prefs.notify)
+  expect(notify.chosen(LEGACY.prefs.notify)).toBeUndefined()
+  expect(notify.chosen({ ...LEGACY.prefs.notify, text: { 'context:70': 'stop' } })).toBeDefined()
+  expect(notify.sanitize(undefined)).toEqual(notify.DEFAULT_NOTIFY)
 })
 
 test('the user\'s own text follows the facts, for the threshold that fired', async ($, on) => {
@@ -146,9 +212,10 @@ test('BRAIN_DRAIN_NOTIFY turns it on and replaces the saved thresholds for the r
 })
 
 test('a malformed BRAIN_DRAIN_NOTIFY is ignored and said so', async ($, on) => {
-  const w = await setup($, on, { store: {}, env: { BRAIN_DRAIN_NOTIFY: '{"context": "lots"}' } })
+  const w = await setup($, on, { store: {}, env: { BRAIN_DRAIN_NOTIFY: '{"context": "lots", "on": false}' } })
   w.context = { tokens: 720000, window: 1000000, percent: 72 }
-  expect(await submit($)).toHaveLength(0)
+  // The saved settings stand: here the defaults, so the stages fire.
+  expect(await submit($)).toHaveLength(1)
   expect(((await $.command.run(CMD('notify'))) as { text: string }).text).toContain('"context" must be a list')
 })
 

@@ -7,7 +7,8 @@ limits is left — right under the prompt in Claude Code.
 
 Brain Drain is a Claude Code mod: a plugin that runs inside Claude Code and reads its figures
 from Claude Code itself. It never calls a model, makes no network requests, and never changes
-what you type. Unless you turn on `/drain notify`, it adds nothing to what Claude reads. To check
+what you type. The one thing it adds to what Claude reads is a line of facts when the context
+passes set levels, so Claude knows how full its own context is; `/drain notify off` stops it. To check
 this yourself before installing, clone the repository and run `claude plugin validate ./brain-drain`:
 its `hooks:` and `calls:` lines list everything the mod asks Claude Code to do
 ([Mods overview](https://code.claude.com/docs/en/plugins/mods/overview)).
@@ -47,22 +48,25 @@ The countdown follows that switch.
   tokens re-written and the change in Claude Code's own session cost figure over the turn that
   opened cold. Misses are kept for 60 days.
 
-## Telling Claude its own levels (off by default)
+## Telling Claude its own levels
 
-With `/drain notify on`, Brain Drain adds one line of facts to Claude's own context when a
-threshold is crossed, so the session itself knows where it stands:
+Brain Drain adds one line of facts to Claude's own context when the context passes 20, 30, 35, 50,
+70 and 90%, so the session itself knows where it stands instead of guessing:
 
 ```
-Brain Drain: context 71% (712k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)
+Brain Drain: context 31% (312k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)
 ```
 
 - It speaks once per threshold, after a tool call or when you send a prompt, and again only after
-  the figure has dropped back below it. It speaks to the main conversation only, never to
-  subagents.
-- Default thresholds: context 70% and 90%, 5-hour window 80% and 95%, and weekly use going above
-  the pace line: the share of the week gone since your weekly reset, plus 5 points.
+  the figure has dropped back below it. After a compaction, the first figure is told again. It
+  speaks to the main conversation only, never to subagents.
+- The 5-hour and weekly figures ride along in the line. Thresholds of their own are off unless you
+  set them: `/drain notify 5h 80 95` for the 5-hour window, `/drain notify week on` for weekly use
+  going above the pace line (the share of the week gone since your weekly reset, plus 5 points).
+- Other context levels: `/drain notify context 30 50`. `/drain notify off` turns the line off;
+  `/drain notify` shows what is set.
 - The line states facts only. To tell Claude what to do about them, attach your own words to a
-  threshold: `/drain notify text context 90 "wrap up and summarise"`.
+  threshold: `/drain notify text context 50 "finish what you are doing and summarise"`.
 - It works in non-interactive `claude -p` runs too, from the first tool call on. Nothing can
   arrive before Claude Code's first response, because the figures do not exist until then.
 

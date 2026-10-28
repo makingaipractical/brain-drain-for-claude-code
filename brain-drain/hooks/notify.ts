@@ -5,7 +5,15 @@ import { clock, fmtTokens } from './core.ts'
 // when a figure crosses a threshold. Pure: register.tsx reads the figures, keeps
 // which thresholds have fired, and attaches the text.
 
-export const DEFAULT_NOTIFY: DrainNotify = { on: false, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} }
+// On by default for the context stages (MC-6373): a session that is not told
+// does not know to look. 20, 30, 35 and 50 follow a wind-down rule of finishing
+// the piece in hand from 30% and never going past 50%; 70 and 90 come before
+// Claude Code compacts. The 5-hour and weekly thresholds are there to turn on.
+export const DEFAULT_NOTIFY: DrainNotify = { on: true, context: [20, 30, 35, 50, 70, 90], fiveHour: [], week: false, margin: 5, text: {} }
+
+// 0.2.1 and earlier stored the whole block, defaults included, with any other
+// /drain change. A block exactly like this one was never chosen by anyone.
+const LEGACY_DEFAULT: DrainNotify = { on: false, context: [70, 90], fiveHour: [80, 95], week: true, margin: 5, text: {} }
 
 export const ENV_NAME = 'BRAIN_DRAIN_NOTIFY'
 const MAX_LINES = 10
@@ -51,11 +59,14 @@ function states(f: Figures, n: DrainNotify, nowS: number): { key: string; crosse
 /**
  * Which thresholds are newly crossed, and the fired set after this reading:
  * a crossed threshold fires once; one whose figure fell back below re-arms; one
- * whose figure is not known keeps its state.
+ * whose figure is not known keeps its state. A context not known (just
+ * compacted or resumed) clears the context stages, so the first figure after
+ * it is told again: the earlier notes went into the summary.
  */
 export function evaluate(f: Figures, n: DrainNotify, fired: readonly string[], nowS: number): { crossed: string[]; fired: string[] } {
-  const was = new Set(fired)
-  const now = new Set(fired)
+  const kept = f.context ? fired : fired.filter(k => !k.startsWith('context:'))
+  const was = new Set(kept)
+  const now = new Set(kept)
   const crossed: string[] = []
   for (const s of states(f, n, nowS)) {
     if (s.crossed === undefined) continue
@@ -110,11 +121,30 @@ function texts(v: unknown): Record<string, string> | undefined {
   return out
 }
 
-/** Saved prefs, field by field: a field of the wrong shape falls back to its default. */
+function sameList(a: unknown, b: readonly number[]): boolean {
+  return Array.isArray(a) && a.length === b.length && a.every((x, i) => x === b[i])
+}
+
+/**
+ * The fields of a stored block the user chose, or undefined for none. The
+ * block 0.2.1 saved along with another setting, untouched, counts as none, so
+ * the new defaults reach everyone who never set the notice.
+ */
+export function chosen(v: unknown): Record<string, unknown> | undefined {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+  const o = v as Record<string, unknown>
+  const d = LEGACY_DEFAULT
+  const untouched =
+    Object.keys(o).length === 6 && o.on === d.on && sameList(o.context, d.context) && sameList(o.fiveHour, d.fiveHour) &&
+    o.week === d.week && o.margin === d.margin && typeof o.text === 'object' && o.text !== null && Object.keys(o.text).length === 0
+  return untouched ? undefined : o
+}
+
+/** Saved prefs, field by field: a field missing or of the wrong shape falls back to its default. */
 export function sanitize(v: unknown): DrainNotify {
   const o = typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : {}
   return {
-    on: o.on === true,
+    on: typeof o.on === 'boolean' ? o.on : DEFAULT_NOTIFY.on,
     context: lines(o.context) ?? DEFAULT_NOTIFY.context,
     fiveHour: lines(o.fiveHour) ?? DEFAULT_NOTIFY.fiveHour,
     week: typeof o.week === 'boolean' ? o.week : DEFAULT_NOTIFY.week,

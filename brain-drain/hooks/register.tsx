@@ -8,8 +8,8 @@ import type { DrainAgent, DrainAgents, DrainMeta, DrainMiss, DrainNotify, DrainP
 
 // Brain Drain, the mod: the data source for the VS Code extension (the bridge's
 // session file) and a coloured line under the prompt (or above it, by choice). Never calls a model,
-// never compacts, never rewrites the prompt. The one thing it hands the model is the self-notice,
-// off unless asked for: a line of facts when a threshold is crossed.
+// never compacts, never rewrites the prompt. The one thing it hands the model is the self-notice:
+// a line of facts when a threshold is crossed, at set context stages unless turned off.
 
 const reading = atom({ plugin: 'brain-drain', key: 'reading' } as const, null)
 const prefs = atom({ plugin: 'brain-drain', key: 'prefs' } as const, null)
@@ -35,8 +35,13 @@ async function loadPrefs($: $): Promise<DrainPrefs> {
   if (!core.isStyle(p.style)) p.style = core.DEFAULT_STYLE
   if (p.place !== 'below' && p.place !== 'above') p.place = 'below'
   p.agents = p.agents === true
-  p.notify = notify.sanitize(p.notify)
+  p.notify = notify.sanitize(notify.chosen(stored?.notify))
   return p
+}
+
+/** The notice's fields as the user set them, the only ones stored, so a later default reaches every field they never set. */
+async function storedNotify($: $): Promise<Record<string, unknown> | undefined> {
+  return notify.chosen(((await $.store.get('prefs')) as { notify?: unknown } | undefined)?.notify)
 }
 
 /**
@@ -48,10 +53,13 @@ async function getPrefs($: $): Promise<DrainPrefs> {
   return (await read($, prefs)) ?? (await loadPrefs($))
 }
 
-async function setPrefs($: $, change: Partial<DrainPrefs>): Promise<DrainPrefs> {
+/** `notifySet`: the notice's fields as the user set them, given when a `/drain notify` command changed one. */
+async function setPrefs($: $, change: Partial<DrainPrefs>, notifySet?: Record<string, unknown>): Promise<DrainPrefs> {
   const next = { ...(await getPrefs($)), ...change }
   await update($, prefs, () => next)
-  await $.store.set('prefs', next)
+  const { notify: _, ...rest } = next
+  const set = notifySet ?? (await storedNotify($))
+  await $.store.set('prefs', set ? { ...rest, notify: set } : rest)
   return next
 }
 
@@ -576,7 +584,8 @@ async function notifyCommand($: $, args: string): Promise<string> {
   const saved = notify.sanitize((await getPrefs($)).notify)
   const m = await getMeta($)
   const save = async (change: Partial<DrainNotify>) => {
-    await setPrefs($, { notify: { ...saved, ...change } })
+    const set = { ...((await storedNotify($)) ?? {}), ...change }
+    await setPrefs($, { notify: notify.sanitize(set) }, set)
   }
   const envNote = m.notifyEnv ? ` This run follows ${notify.ENV_NAME}, which overrides the saved settings until it ends.` : ''
   if (sub === '') {
