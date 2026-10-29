@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 import * as notify from '../hooks/notify.ts'
-import { HOME, SID, sessionFile, start, world } from './world.ts'
+import { HOME, SID, sessionFile, settle, start, world } from './world.ts'
 import type { WorldOptions } from './world.ts'
 
 const NOW = Date.UTC(2026, 9, 3, 12, 0, 0)
@@ -99,19 +99,29 @@ test('subagents never get the note, and do not use up a threshold', async ($, on
   expect(await toolCall($)).toHaveLength(1)
 })
 
-test('on by default at the context stages 20, 30, 35, 50, 70 and 90; /drain notify off stops it', async ($, on) => {
+test('on by default at the context stages 20, 30, 35 and 50, each with its words; /drain notify off stops it', async ($, on) => {
   const w = await setup($, on, { store: {}, context: { tokens: 150000, window: 1000000, percent: 15 } })
   expect(await submit($)).toHaveLength(0)
   w.context = { tokens: 210000, window: 1000000, percent: 21 }
   const [first] = await toolCall($)
-  expect(first).toMatch(/^Brain Drain: context 21% \(210k of 1M\) · 5-hour window 50%, resets \d\d:\d\d · week 20% \(pace line 48%\)$/)
+  expect(first!.split('\n')).toEqual([
+    expect.stringMatching(/^Brain Drain: context 21% \(210k of 1M\) · 5-hour window 50%, resets \d\d:\d\d · week 20% \(pace line 48%\)$/),
+    'For information: carry on.',
+  ])
   const seen: string[] = []
+  const words: Record<string, string> = {}
   for (const pct of [25, 30, 33, 35, 49, 50, 69, 70, 89, 90, 95]) {
     w.context = { tokens: pct * 10000, window: 1000000, percent: pct }
     const notes = await toolCall($)
-    if (notes.length > 0) seen.push(String(pct))
+    if (notes.length > 0) {
+      seen.push(String(pct))
+      words[pct] = notes[0]!.split('\n')[1]!
+    }
   }
-  expect(seen).toEqual(['30', '35', '50', '70', '90'])
+  expect(seen).toEqual(['30', '35', '50'])
+  expect(words[30]).toBe('For information: carry on.')
+  expect(words[35]).toMatch(/^Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on\.$/)
+  expect(words[50]).toMatch(/^Close now: finish the piece in hand, commit it, write a summary/)
   // The 5-hour and weekly thresholds are off unless turned on.
   w.context = { tokens: 960000, window: 1000000, percent: 96 }
   w.rateLimits = LIMITS(97, 99)
@@ -154,7 +164,7 @@ test('a 0.2.1 block never touched takes the new defaults; a /drain change stores
   expect((w.store.get('prefs') as Record<string, unknown>).notify).toEqual({ fiveHour: [80], v: 2 })
   const shown = ((await $.command.run(CMD('notify'))) as { text: string }).text
   expect(shown).toContain('Self-notice on')
-  expect(shown).toContain('context  20%, 30%, 35%, 50%, 70%, 90%')
+  expect(shown).toContain('context  20%, 30%, 35%, 50%')
   expect(shown).toContain('5h       80%')
 })
 
@@ -259,6 +269,85 @@ test('a /clear starts the fired set again', async ($, on) => {
   expect(await submit($)).toHaveLength(1)
   w.sid = 'ffffffff-0000-0000-0000-000000000000'
   expect(await submit($)).toHaveLength(1)
+})
+
+// Answers the setup question with `answer`, and counts how often it was asked.
+function answering(on: any, answer: string) {
+  const asked: string[] = []
+  on('tool.call', { tool: 'AskUserQuestion' }, ($: unknown, e: { questions: { question: string; options: { label: string }[] }[] }) => {
+    const q = e.questions[0]!
+    asked.push(`${q.question} [${q.options.map(o => o.label).join(' | ')}]`)
+    return { result: { questions: e.questions, answers: { [q.question]: answer } } }
+  })
+  return asked
+}
+
+test('setting up asks once whether to turn the notice on, offering 20, 30, 35 and 50', async ($, on) => {
+  const asked = answering(on, 'On at 20, 30, 35, 50%')
+  const w = await setup($, on, { store: LEGACY })
+  await settle()
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toContain('[On at 20, 30, 35, 50% | Off]')
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: true, v: 2 })
+  expect(w.toasts.at(-1)).toContain('on at 20, 30, 35 and 50%')
+  // A new session, a reload: not asked again.
+  await start($)
+  await settle()
+  expect(asked).toHaveLength(1)
+})
+
+test('the setup question: Off turns it off; typed levels replace the stages', async ($, on) => {
+  const asked = answering(on, 'Off')
+  const w = await setup($, on, { store: {} })
+  await settle()
+  expect(asked).toHaveLength(1)
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: false, v: 2 })
+  w.context = { tokens: 720000, window: 1000000, percent: 72 }
+  expect(await submit($)).toHaveLength(0)
+  expect(notify.levelsFrom('25, 40 and 60%')).toEqual([25, 40, 60])
+  expect(notify.levelsFrom('sure')).toBeUndefined()
+  expect(notify.levelsFrom('25 140')).toBeUndefined()
+})
+
+test('the setup question with levels typed under Other', async ($, on) => {
+  answering(on, '25 40')
+  const w = await setup($, on, { store: {} })
+  await settle()
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual({ on: true, context: [25, 40], v: 2 })
+})
+
+test('not asked: a user who chose notice settings in 0.2.1, a run its launcher configured, a -p run', async ($, on) => {
+  const asked = answering(on, 'Off')
+  const w = await setup($, on, { store: ON })
+  await settle()
+  expect(asked).toHaveLength(0)
+  expect((w.store.get('prefs') as { notify: unknown }).notify).toEqual(ON.prefs.notify)
+  w.store.clear()
+  w.store.set('prefs', LEGACY.prefs)
+  await start($, false)
+  await settle()
+  expect(asked).toHaveLength(0)
+  expect(w.store.has('notifyAsked')).toBe(false)
+})
+
+test('not asked when BRAIN_DRAIN_NOTIFY is set', async ($, on) => {
+  const asked = answering(on, 'Off')
+  await setup($, on, { store: {}, env: { BRAIN_DRAIN_NOTIFY: '{"context":[48]}' } })
+  await settle()
+  expect(asked).toHaveLength(0)
+})
+
+test('a stage\'s default words can be replaced or silenced', async ($, on) => {
+  answering(on, 'On at 20, 30, 35, 50%')
+  const w = await setup($, on, { store: {} })
+  await settle()
+  await $.command.run(CMD('notify text context 35 "wrap up"'))
+  await $.command.run(CMD('notify text context 20'))
+  expect((w.store.get('prefs') as { notify: { text: unknown } }).notify.text).toEqual({ 'context:35': 'wrap up', 'context:20': '' })
+  w.context = { tokens: 210000, window: 1000000, percent: 21 }
+  expect((await submit($))[0]!.includes('\n')).toBe(false)
+  w.context = { tokens: 360000, window: 1000000, percent: 36 }
+  expect((await submit($))[0]!.split('\n').slice(1)).toEqual(['wrap up'])
 })
 
 test('pace line and env parsing', () => {

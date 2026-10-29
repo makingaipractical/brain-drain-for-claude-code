@@ -6,12 +6,18 @@ import { clock, fmtTokens } from './core.ts'
 // which thresholds have fired, and attaches the text.
 
 // On by default for the context stages (MC-6373): a session that is not told
-// does not know to look. 20, 30, 35 and 50 serve a project whose own rule winds
-// a session down early (say, finish the piece in hand from 30%, never pass 50%);
-// 70 and 90 come before Claude Code compacts. The levels skill tells the model
-// that a project's rule comes first. The 5-hour and weekly thresholds are there
+// does not know to look. The first interactive session asks the user, offering
+// these. 20 and 30 are information; at 35 the note suggests closing, at 50 it
+// says to close. A user's own words for a stage replace these; stored as an
+// empty string, they silence them. The 5-hour and weekly thresholds are there
 // to turn on.
-export const DEFAULT_NOTIFY: DrainNotify = { on: true, context: [20, 30, 35, 50, 70, 90], fiveHour: [], week: false, margin: 5, text: {} }
+export const DEFAULT_TEXT: Readonly<Record<string, string>> = {
+  'context:20': 'For information: carry on.',
+  'context:30': 'For information: carry on.',
+  'context:35': 'Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.',
+  'context:50': 'Close now: finish the piece in hand, commit it, write a summary of where things stand, and end the session.',
+}
+export const DEFAULT_NOTIFY: DrainNotify = { on: true, context: [20, 30, 35, 50], fiveHour: [], week: false, margin: 5, text: { ...DEFAULT_TEXT } }
 
 // 0.2.1 and earlier stored the whole block, defaults included, with any other
 // /drain change. A block exactly like this one was never chosen by anyone.
@@ -94,9 +100,19 @@ export function factsLine(f: Figures, n: DrainNotify, nowS: number): string {
   return `Brain Drain: ${parts.length > 0 ? parts.join(' · ') : 'no figures yet'}`
 }
 
-/** The note as the model receives it: the facts, then the user's own text for each threshold just crossed, one per line. */
+/**
+ * The note as the model receives it: the facts, then the words for each kind of
+ * threshold just crossed, one per line. Where several stages of one kind cross
+ * together (30 and 35 after a big tool result), the highest one's words alone.
+ */
 export function noticeText(f: Figures, n: DrainNotify, crossed: readonly string[], nowS: number): string {
-  const extra = crossed.map(k => n.text[k]).filter((t): t is string => typeof t === 'string' && t.trim() !== '')
+  const top = new Map<string, string>()
+  for (const k of crossed) {
+    const [kind, v] = k.split(':')
+    const held = top.get(kind!)
+    if (held === undefined || Number(v) > Number(held.split(':')[1])) top.set(kind!, k)
+  }
+  const extra = [...top.values()].map(k => n.text[k]).filter((t): t is string => typeof t === 'string' && t.trim() !== '')
   return [factsLine(f, n, nowS), ...extra].join('\n')
 }
 
@@ -118,7 +134,7 @@ function texts(v: unknown): Record<string, string> | undefined {
   const out: Record<string, string> = {}
   for (const [k, t] of Object.entries(v)) {
     if (!isTextKey(k) || typeof t !== 'string' || t.length > MAX_TEXT) return undefined
-    if (t.trim() !== '') out[k] = t
+    out[k] = t.trim() === '' ? '' : t
   }
   return out
 }
@@ -151,8 +167,19 @@ export function sanitize(v: unknown): DrainNotify {
     fiveHour: lines(o.fiveHour) ?? DEFAULT_NOTIFY.fiveHour,
     week: typeof o.week === 'boolean' ? o.week : DEFAULT_NOTIFY.week,
     margin: typeof o.margin === 'number' && Number.isFinite(o.margin) && Math.abs(o.margin) <= 100 ? o.margin : DEFAULT_NOTIFY.margin,
-    text: texts(o.text) ?? {},
+    text: { ...DEFAULT_TEXT, ...storedText(o) },
   }
+}
+
+/** The words the user set themselves, an empty string where they silenced a default. */
+export function storedText(v: unknown): Record<string, string> {
+  return (typeof v === 'object' && v !== null ? texts((v as Record<string, unknown>).text) : undefined) ?? {}
+}
+
+/** Levels typed as an answer: `25 40 60`, `25, 40 and 60%`. Undefined when there are none, or one is out of range. */
+export function levelsFrom(answer: string): number[] | undefined {
+  const nums = (answer.match(/\d+(\.\d+)?/g) ?? []).map(Number)
+  return nums.length > 0 ? lines(nums) : undefined
 }
 
 /**
@@ -220,9 +247,9 @@ export function describe(n: DrainNotify, fromEnv: boolean, envError: string | un
   out.push(`  context  ${n.context.length > 0 ? n.context.map(t => `${t}%`).join(', ') : 'off'}`)
   out.push(`  5h       ${n.fiveHour.length > 0 ? n.fiveHour.map(t => `${t}%`).join(', ') : 'off'}`)
   out.push(`  week     ${n.week ? `above the pace line (days since the weekly reset / 7 x 100, plus ${n.margin} points)` : 'off'}`)
-  const keys = Object.keys(n.text)
+  const keys = Object.keys(n.text).filter(k => n.text[k]!.trim() !== '')
   if (keys.length > 0) {
-    out.push('  your text:')
+    out.push('  words after the facts:')
     for (const k of keys) out.push(`    ${k.replace(':', ' ')}: ${n.text[k]}`)
   }
   out.push(`  fired this session: ${fired.length > 0 ? fired.map(k => k.replace(':', ' ')).join(', ') : 'none'}`)

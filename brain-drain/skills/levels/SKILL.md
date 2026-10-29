@@ -13,9 +13,10 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 
 ## Reading them
 
-1. **The notice line.** Brain Drain adds one line to your context when the context passes 20, 30, 35, 50, 70 and 90%, unless the user turned it off (`/drain notify off`) or set other stages:
-   `Brain Drain: context 31% (312k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)`
-   Each stage is told once, and again after a compaction. The 5-hour and weekly figures ride along as facts; they have thresholds of their own only if the user turned them on. The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. Any line after it is the user's own instruction for that stage: follow it.
+1. **The notice.** When the context passes a level the user chose (offered by default: 20, 30, 35 and 50%), Brain Drain adds a short note to your context, a line of facts and then what to do:
+   `Brain Drain: context 36% (362k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)`
+   `Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.`
+   Each level is told once, and again after a compaction. The 5-hour and weekly figures ride along as facts; they have thresholds of their own only if the user turned them on. The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. The line after the facts is the user's instruction for that level, theirs or the default they accepted: follow it.
 2. **The session file**, when no line has arrived. Brain Drain writes one file per interactive session, named by the session id Claude Code puts in `CLAUDE_CODE_SESSION_ID`:
    ```bash
    f=~/.claude/fuel-gauge-mod/$CLAUDE_CODE_SESSION_ID.json; [ -f "$f" ] || f=~/.claude/fuel-gauge/$CLAUDE_CODE_SESSION_ID.json; cat "$f"
@@ -29,9 +30,8 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 The project's own rules on thresholds come first. Where it has none:
 
 - Never call the context full, or wind down for its sake, without a figure. Read it first (above).
-- Below 50% context (the 20, 30 and 35% notices), the line is information: carry on with the work.
-- From 50%, finish the piece in hand and save it before starting anything large.
-- From 70%, compaction is coming: write down where you are somewhere that survives it (a file, a ticket) before starting anything new.
+- A notice's own words say what to do at that level; with the defaults: at 20 and 30%, carry on; from 35%, finish the piece in hand and close unless going on clearly makes sense; from 50%, finish the piece, commit it, write a summary of where things stand, and close.
+- With no notice to go by, from 50% finish the piece in hand and save it before starting anything large, and nearer the limit write down where you are somewhere that survives compaction (a file, a ticket).
 - With the five-hour window nearly spent, do not fan out subagents: each draws on the same window, and one cut off mid-run leaves half-done work. Work one at a time, or stop at a clean point and name the reset time.
 - With the week above its pace line, prefer the smaller way to the same result.
 

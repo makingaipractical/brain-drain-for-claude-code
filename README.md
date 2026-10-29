@@ -7,8 +7,10 @@ limits is left — right under the prompt in Claude Code.
 
 Brain Drain is a Claude Code mod: a plugin that runs inside Claude Code and reads its figures
 from Claude Code itself. It never calls a model, makes no network requests, and never changes
-what you type. The one thing it adds to what Claude reads is a line of facts when the context
-passes set levels, so Claude knows how full its own context is; `/drain notify off` stops it. To check
+what you type. The one thing it can add to what Claude reads is a short note when the context
+passes set levels, so Claude knows how full its own context is. The first time Brain Drain starts
+in an interactive session, it asks whether to turn that note on, and the default it offers is on,
+at 20, 30, 35 and 50%; `/drain notify off` stops it at any time. To check
 this yourself before installing, clone the repository and run `claude plugin validate ./brain-drain`:
 its `hooks:` and `calls:` lines list everything the mod asks Claude Code to do
 ([Mods overview](https://code.claude.com/docs/en/plugins/mods/overview)).
@@ -50,25 +52,36 @@ The countdown follows that switch.
 
 ## Telling Claude its own levels
 
-Brain Drain adds one line of facts to Claude's own context when the context passes 20, 30, 35, 50,
-70 and 90%, so the session itself knows where it stands instead of guessing:
+When the context passes a level, Brain Drain adds a short note to Claude's own context, so the
+session knows where it stands instead of guessing: one line of facts, then a line on what to do.
 
 ```
-Brain Drain: context 31% (312k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)
+Brain Drain: context 36% (362k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)
+Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.
 ```
 
-- It speaks once per threshold, after a tool call or when you send a prompt, and again only after
-  the figure has dropped back below it. After a compaction, the first figure is told again. It
-  speaks to the main conversation only, never to subagents.
+- **Setting it up.** The first time Brain Drain starts in an interactive session, it asks, in Claude
+  Code's own question dialog, whether to turn the note on. The default it offers is on, at 20, 30,
+  35 and 50%. You can pick it, pick Off, or type other levels (`25 40 60`). It asks once; if the
+  question is left unanswered, the offered default stands. If you changed any notice setting in an
+  earlier version, it does not ask, and your settings stay as they were.
+- **What each level says by default.** At 20 and 30%: for information, carry on. At 35%: consider
+  closing; finish the piece in hand and close, unless it clearly makes sense to go on. At 50%: close
+  now; finish the piece in hand, commit it, write a summary of where things stand, and end the
+  session. Your own words replace these: `/drain notify text context 35 "your words"`. The same
+  command with no words silences that level's words, and the line of facts still comes.
+- It speaks once per level, after a tool call or when you send a prompt, and again only after
+  the figure has dropped back below it. After a compaction, the first figure is told again. Where
+  several levels pass at once, the note carries the highest one's words. It speaks to the main
+  conversation only, never to subagents.
 - The 5-hour and weekly figures ride along in the line. Thresholds of their own are off unless you
   set them: `/drain notify 5h 80 95` for the 5-hour window, `/drain notify week on` for weekly use
   going above the pace line (the share of the week gone since your weekly reset, plus 5 points).
-- Other context levels: `/drain notify context 30 50`. `/drain notify off` turns the line off;
+- Other context levels: `/drain notify context 30 50`. `/drain notify off` turns the note off;
   `/drain notify` shows what is set.
-- The line states facts only. To tell Claude what to do about them, attach your own words to a
-  threshold: `/drain notify text context 50 "finish what you are doing and summarise"`.
-- It works in non-interactive `claude -p` runs too, from the first tool call on. Nothing can
-  arrive before Claude Code's first response, because the figures do not exist until then.
+- It works in non-interactive `claude -p` runs too, from the first tool call on, with your saved
+  settings, or the default if you never chose; such a run cannot ask. Nothing can arrive before
+  Claude Code's first response, because the figures do not exist until then.
 
 For unattended runs, the environment variable `BRAIN_DRAIN_NOTIFY` overrides your saved settings
 for one run. It takes `on`, `off`, or JSON with any of these keys: `on`, `context` (a list),

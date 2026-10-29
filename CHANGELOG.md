@@ -5,16 +5,21 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
 
 ## Unreleased
 
-- **Claude is told how full its context is, by default.** When the context passes 20, 30, 35, 50,
-  70 and 90%, Brain Drain adds one line of facts to what Claude reads, so a session knows where it
-  stands instead of guessing. Until now this notice was off unless you turned it on, and spoke at
-  70% and 90% only. Each level is told once, and again after a compaction. Non-interactive
-  `claude -p` runs get the line too. `/drain notify off` stops it; `/drain notify context 30 50`
-  sets other levels. If you had changed any notice setting, your settings stay as they were. One
-  exception: if you turned the notice on and then off again, with nothing else changed, that
-  cannot be told apart from never having touched it, so it comes on; `/drain notify off` turns it
-  off for good. The 5-hour and weekly thresholds are now off unless you set them
-  (`/drain notify 5h 80 95`, `/drain notify week on`); their figures still appear in the line.
+- **Brain Drain asks whether Claude should be told how full its context is.** The first time it
+  starts in an interactive session, it asks, offering on at 20, 30, 35 and 50% as the default; you
+  can also pick Off or type other levels. When the context passes a level, Brain Drain adds a short
+  note to what Claude reads: a line of facts, then what to do. At 20 and 30% it is for information;
+  at 35% it suggests finishing the piece in hand and closing, unless going on clearly makes sense;
+  at 50% it says to close now: finish the piece, commit it, write a summary. Until now this notice
+  was off unless you turned it on, spoke at 70% and 90% only, and stated facts alone. Each level is
+  told once, and again after a compaction. `/drain notify off` stops it; `/drain notify context 30 50`
+  sets other levels; `/drain notify text context 35 "..."` replaces a level's words. If you had
+  changed any notice setting, you are not asked and your settings stay as they were; if you only
+  turned it on and off again, that cannot be told apart from never touching it, so you are asked.
+  A question left unanswered leaves the default on. `claude -p` runs cannot ask: they get the note
+  with your saved settings, or the default. The 5-hour and weekly thresholds are now off unless
+  you set them (`/drain notify 5h 80 95`, `/drain notify week on`); their figures still appear in
+  the line.
 - **Subagent rows show each agent's context.** With `/drain agents on`, a row's number and bar were
   every request of that agent added up, cache re-reads included, so an agent holding 156k of
   context read 3.5M. A row now shows the agent's context as of its latest request, the same figure

@@ -582,7 +582,53 @@ function clearContextStages($: $): Promise<unknown> {
   return run
 }
 
-const THRESHOLD_KIND: Record<string, 'context' | 'fiveHour'> = { context: 'context', '5h': 'fiveHour', '5-hour': 'fiveHour' }
+/** Stores the notice fields given, over the ones the user set before. */
+async function saveNotify($: $, change: Partial<DrainNotify>): Promise<void> {
+  // `v` marks a block this version stored, so it is never read as the one 0.2.1 saved along.
+  const set = { ...((await storedNotify($)) ?? {}), ...change, v: 2 }
+  await setPrefs($, { notify: notify.sanitize(set) }, set)
+}
+
+const ASKED_KEY = 'notifyAsked'
+const ASK_ON = 'On at 20, 30, 35, 50%'
+const ASK_OFF = 'Off'
+const ASK_QUESTION =
+  'Brain Drain can tell Claude how full its context is, so a session knows when to wind down: a note at 20 and 30%, ' +
+  'a suggestion to finish and close at 35%, and at 50% to close now. Turn it on? Under Other, type your own levels, e.g. 25 40 60.'
+
+/**
+ * Setting up: the first interactive session of a user who never chose any
+ * notice setting asks whether to turn the notice on, offering the default
+ * levels. Asked once per user: the mark is stored before the question shows, so
+ * a session nobody answers does not ask again, and the defaults stand. A run with
+ * BRAIN_DRAIN_NOTIFY set was chosen for by its launcher and is not asked.
+ */
+async function askAtSetup($: $): Promise<void> {
+  if ((await getMeta($)).notifyEnv !== undefined) return
+  if ((await $.store.get(ASKED_KEY)) !== undefined || (await storedNotify($)) !== undefined) return
+  await $.store.set(ASKED_KEY, Math.floor(await nowS($)))
+  let answer: string
+  try {
+    answer = (await $.ui.ask(ASK_QUESTION, { header: 'Brain Drain', options: [ASK_ON, ASK_OFF] })).trim()
+  } catch {
+    return
+  }
+  const levels = notify.levelsFrom(answer)
+  if (answer === ASK_OFF || /^(off|no)\b/i.test(answer)) {
+    await saveNotify($, { on: false })
+    await $.ui.toast('Context notice off. /drain notify on turns it on.')
+  } else if (answer === ASK_ON) {
+    await saveNotify($, { on: true })
+    await $.ui.toast('Context notice on at 20, 30, 35 and 50%. /drain notify shows or changes it.')
+  } else if (levels && levels.length > 0) {
+    await saveNotify($, { on: true, context: levels })
+    await $.ui.toast(`Context notice on at ${levels.join(', ')}%. /drain notify shows or changes it.`)
+  } else {
+    await $.ui.toast('Brain Drain read no levels in that answer; the notice is on at 20, 30, 35 and 50%. /drain notify changes it.')
+  }
+}
+
+const THRESHOLD_KIND: Record<string, 'context' | 'fiveHour'> ={ context: 'context', '5h': 'fiveHour', '5-hour': 'fiveHour' }
 
 /** Strips one pair of surrounding quotes, as typed in `/drain notify text context 35 "stop"`. */
 function unquote(s: string): string {
@@ -595,11 +641,7 @@ async function notifyCommand($: $, args: string): Promise<string> {
   const sub = (words[0] ?? '').toLowerCase()
   const saved = notify.sanitize((await getPrefs($)).notify)
   const m = await getMeta($)
-  const save = async (change: Partial<DrainNotify>) => {
-    // `v` marks a block this version stored, so it is never read as the one 0.2.1 saved along.
-    const set = { ...((await storedNotify($)) ?? {}), ...change, v: 2 }
-    await setPrefs($, { notify: notify.sanitize(set) }, set)
-  }
+  const save = (change: Partial<DrainNotify>) => saveNotify($, change)
   const envNote = m.notifyEnv ? ` This run follows ${notify.ENV_NAME}, which overrides the saved settings until it ends.` : ''
   if (sub === '') {
     const n = await notifySettings($)
@@ -657,9 +699,11 @@ async function notifyCommand($: $, args: string): Promise<string> {
     }
     const text = unquote(args.trim().split(/\s+/).slice(restStart).join(' '))
     // From the store, as the other fields are: a text another session saved meanwhile stays.
-    const next = { ...notify.sanitize(await storedNotify($)).text }
-    if (text === '') delete next[key]
-    else next[key] = text
+    // Clearing a stage that has default words stores an empty string, which silences them.
+    const next = notify.storedText(await storedNotify($))
+    if (text !== '') next[key] = text
+    else if (key in notify.DEFAULT_TEXT) next[key] = ''
+    else delete next[key]
     await save({ text: next })
     const label = key.replace(':', ' ')
     if (text === '') return `Text for ${label} cleared.${envNote}`
@@ -805,6 +849,8 @@ async function setup($: $, interactive: boolean): Promise<void> {
     void refreshAgentsOnce($)
   })
   await seed($, () => seedSession($, interactive, false))
+  // Not awaited: the question stays up while the session starts.
+  if (interactive) void askAtSetup($).catch(err => $.ui.log(`brain-drain: notify: ${String(err)}`, { to: 'debug' }))
 }
 
 // One seeding at a time. A module variable survives /clear; a hot reload resets
