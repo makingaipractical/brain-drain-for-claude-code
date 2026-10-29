@@ -103,17 +103,19 @@ export function factsLine(f: Figures, n: DrainNotify, nowS: number): string {
 /**
  * The note as the model receives it: the facts, then the words for each kind of
  * threshold just crossed, one per line. Where several stages of one kind cross
- * together (30 and 35 after a big tool result), the highest one's words alone.
+ * together (30 and 35 after a big tool result), the words of the highest one
+ * that has any, alone.
  */
 export function noticeText(f: Figures, n: DrainNotify, crossed: readonly string[], nowS: number): string {
   const top = new Map<string, string>()
   for (const k of crossed) {
+    const t = n.text[k]
+    if (typeof t !== 'string' || t.trim() === '') continue
     const [kind, v] = k.split(':')
     const held = top.get(kind!)
     if (held === undefined || Number(v) > Number(held.split(':')[1])) top.set(kind!, k)
   }
-  const extra = [...top.values()].map(k => n.text[k]).filter((t): t is string => typeof t === 'string' && t.trim() !== '')
-  return [factsLine(f, n, nowS), ...extra].join('\n')
+  return [factsLine(f, n, nowS), ...[...top.values()].map(k => n.text[k]!)].join('\n')
 }
 
 // ---------------------------------------------------------------- settings
@@ -176,8 +178,13 @@ export function storedText(v: unknown): Record<string, string> {
   return (typeof v === 'object' && v !== null ? texts((v as Record<string, unknown>).text) : undefined) ?? {}
 }
 
-/** Levels typed as an answer: `25 40 60`, `25, 40 and 60%`. Undefined when there are none, or one is out of range. */
+/**
+ * Levels typed as an answer: `25 40 60`, `25, 40 and 60%`. Undefined unless the
+ * answer is numbers alone, so a stray prompt (`fix ticket 42`) sets nothing, and
+ * when one is out of range.
+ */
 export function levelsFrom(answer: string): number[] | undefined {
+  if (!/^[\d\s.,;%]+$/.test(answer.replace(/\band\b/gi, ' '))) return undefined
   const nums = (answer.match(/\d+(\.\d+)?/g) ?? []).map(Number)
   return nums.length > 0 ? lines(nums) : undefined
 }
@@ -237,7 +244,8 @@ export function parseEnv(raw: string | undefined): { value?: Partial<DrainNotify
 
 /** The settings in force: the saved ones with the run's override laid over them. */
 export function effective(saved: DrainNotify, override: Partial<DrainNotify> | undefined): DrainNotify {
-  return override ? { ...saved, ...override } : saved
+  // Words go level by level: an override's words for one level leave the others' as they were.
+  return override ? { ...saved, ...override, text: { ...saved.text, ...(override.text ?? {}) } } : saved
 }
 
 /** `/drain notify` with no arguments: the settings in force and where they come from. */
@@ -247,7 +255,9 @@ export function describe(n: DrainNotify, fromEnv: boolean, envError: string | un
   out.push(`  context  ${n.context.length > 0 ? n.context.map(t => `${t}%`).join(', ') : 'off'}`)
   out.push(`  5h       ${n.fiveHour.length > 0 ? n.fiveHour.map(t => `${t}%`).join(', ') : 'off'}`)
   out.push(`  week     ${n.week ? `above the pace line (days since the weekly reset / 7 x 100, plus ${n.margin} points)` : 'off'}`)
-  const keys = Object.keys(n.text).filter(k => n.text[k]!.trim() !== '')
+  // Words for a level that is not set never show, so they are not listed.
+  const set = (k: string) => (k === 'week' ? n.week : k.startsWith('context:') ? n.context.includes(Number(k.slice(8))) : n.fiveHour.includes(Number(k.slice(3))))
+  const keys = Object.keys(n.text).filter(k => n.text[k]!.trim() !== '' && set(k))
   if (keys.length > 0) {
     out.push('  words after the facts:')
     for (const k of keys) out.push(`    ${k.replace(':', ' ')}: ${n.text[k]}`)

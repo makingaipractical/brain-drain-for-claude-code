@@ -237,7 +237,8 @@ test('BRAIN_DRAIN_NOTIFY turns it on and replaces the saved thresholds for the r
   w.rateLimits = LIMITS(50, 99)
   const [first] = await submit($)
   expect(first).toContain('context 31%')
-  expect(first!.includes('\n')).toBe(false)
+  // The run's words are for 35 and 5h 80 only: 30 keeps its default words.
+  expect(first!.split('\n').slice(1)).toEqual(['For information: carry on.'])
   w.context = { tokens: 360000, window: 1000000, percent: 36 }
   w.rateLimits = LIMITS(85, 99)
   const [second] = await toolCall($)
@@ -348,6 +349,30 @@ test('a stage\'s default words can be replaced or silenced', async ($, on) => {
   expect((await submit($))[0]!.includes('\n')).toBe(false)
   w.context = { tokens: 360000, window: 1000000, percent: 36 }
   expect((await submit($))[0]!.split('\n').slice(1)).toEqual(['wrap up'])
+})
+
+test('a stray prompt typed into the setup question sets no levels', async ($, on) => {
+  answering(on, 'fix ticket 42')
+  const w = await setup($, on, { store: {} })
+  await settle()
+  expect((w.store.get('prefs') as { notify?: unknown } | undefined)?.notify).toBeUndefined()
+  expect(w.toasts.at(-1)).toContain('read no levels')
+  expect(notify.levelsFrom('25 40')).toEqual([25, 40])
+})
+
+test('a setup question that cannot be asked says the default stands', async ($, on) => {
+  on('tool.call', { tool: 'AskUserQuestion' }, () => ({ deny: 'no dialogs here' }))
+  const w = await setup($, on, { store: {} })
+  await settle()
+  expect(w.store.has('notifyAsked')).toBe(true)
+  expect(w.toasts.at(-1)).toContain('on at 20, 30, 35 and 50%')
+})
+
+test('a silenced top stage gives way to the next stage\'s words', () => {
+  const n = notify.sanitize({ text: { 'context:35': '' } })
+  const f = { context: { pct: 36, tokens: 360000, window: 1000000 } }
+  expect(notify.noticeText(f, n, ['context:30', 'context:35'], 0).split('\n').slice(1)).toEqual(['For information: carry on.'])
+  expect(notify.noticeText(f, n, ['context:35'], 0).includes('\n')).toBe(false)
 })
 
 test('pace line and env parsing', () => {

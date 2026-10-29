@@ -594,7 +594,7 @@ const ASK_ON = 'On at 20, 30, 35, 50%'
 const ASK_OFF = 'Off'
 const ASK_QUESTION =
   'Brain Drain can tell Claude how full its context is, so a session knows when to wind down: a note at 20 and 30%, ' +
-  'a suggestion to finish and close at 35%, and at 50% to close now. Turn it on? Under Other, type your own levels, e.g. 25 40 60.'
+  'a suggestion to finish and close at 35%, and at 50% to close now. Under Other, type your own levels, e.g. 25 40 60. Turn it on?'
 
 /**
  * Setting up: the first interactive session of a user who never chose any
@@ -610,7 +610,10 @@ async function askAtSetup($: $): Promise<void> {
   let answer: string
   try {
     answer = (await $.ui.ask(ASK_QUESTION, { header: 'Brain Drain', options: [ASK_ON, ASK_OFF] })).trim()
-  } catch {
+  } catch (err) {
+    // Dismissed, refused by a hook, or a host that cannot ask: the default stands, and the user is told.
+    $.ui.log(`brain-drain: setup question: ${String(err)}`, { to: 'debug' })
+    await $.ui.toast('Brain Drain: the context notice is on at 20, 30, 35 and 50%. /drain notify off stops it; /drain notify changes it.')
     return
   }
   const levels = notify.levelsFrom(answer)

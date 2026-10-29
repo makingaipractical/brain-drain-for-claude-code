@@ -63,7 +63,7 @@ Consider closing: finish the piece in hand and close the session, unless it clea
 - **Setting it up.** The first time Brain Drain starts in an interactive session, it asks, in Claude
   Code's own question dialog, whether to turn the note on. The default it offers is on, at 20, 30,
   35 and 50%. You can pick it, pick Off, or type other levels (`25 40 60`). It asks once; if the
-  question is left unanswered, the offered default stands. If you changed any notice setting in an
+  question is dismissed, the offered default stands and a notice says so. If you changed any notice setting in an
   earlier version, it does not ask, and your settings stay as they were.
 - **What each level says by default.** At 20 and 30%: for information, carry on. At 35%: consider
   closing; finish the piece in hand and close, unless it clearly makes sense to go on. At 50%: close
@@ -86,8 +86,9 @@ Consider closing: finish the piece in hand and close the session, unless it clea
 For unattended runs, the environment variable `BRAIN_DRAIN_NOTIFY` overrides your saved settings
 for one run. It takes `on`, `off`, or JSON with any of these keys: `on`, `context` (a list),
 `5h` (a list), `week` (true or false), `margin`, and `text` (keys `"context:35"`, `"5h:80"`,
-`"week"`). Any JSON value turns the notice on for that run unless it includes `"on": false`.
-For example:
+`"week"`; words given for one level leave the other levels' words as they are). Any JSON value
+turns the notice on for that run unless it includes `"on": false`. A run with
+`BRAIN_DRAIN_NOTIFY` set is not asked the setup question. For example:
 
 ```
 BRAIN_DRAIN_NOTIFY='{"context":[30,35],"5h":[80],"text":{"context:35":"stop and write down your state"}}' claude -p "..."

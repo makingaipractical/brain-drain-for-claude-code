@@ -45,6 +45,7 @@ export type WorldOptions = {
   now?: number
   context?: { tokens?: number; window: number; percent?: number }
   rateLimits?: SessionRateLimit[]
+  /** What `$.store` holds. Left out: a user asked the setup question long ago, who chose nothing. */
   store?: Record<string, unknown>
   noProcess?: boolean
   /** Every `mv` exits 1, as when the target directory is not writable. */
@@ -59,7 +60,7 @@ export function world(on: On, o: WorldOptions = {}): World {
     runs: [],
     status: [],
     toasts: [],
-    store: new Map(Object.entries(o.store ?? {})),
+    store: new Map(Object.entries(o.store ?? { notifyAsked: 1 })),
     clock: mock.clock(on, { now: o.now ?? Date.UTC(2026, 9, 3, 12, 0, 0) }),
     sid: SID,
     settings: o.settings ?? {},
