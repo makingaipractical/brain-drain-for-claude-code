@@ -804,7 +804,7 @@ async function runCommand($: $, args: string): Promise<string> {
         else await clearAgents($)
         $.ui.invalidate('ui.render')
         return v === 'on'
-          ? 'Subagent bars on (prototype): one row per subagent of this session under the gauge, showing its context now (its latest request\'s input + cache write + cache read + output, the figure Claude Code reports when the agent finishes). The total line sums every request, so a cache re-read counts each time; "running?" is a guess from the transcript\'s last write.'
+          ? 'Subagent bars on (prototype): one row per subagent of this session under the gauge, showing its context now (its latest request\'s input + cache write + cache read + output; close to the figure Claude Code reports when the agent finishes, less than 1% under it). The total line sums every request, so a cache re-read counts each time; "running?" is a guess from the transcript\'s last write.'
           : 'Subagent bars off.'
       }
       if (v !== '') return 'Use /drain agents on, /drain agents off, or /drain agents to list them.'

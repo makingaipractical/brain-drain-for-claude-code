@@ -24,9 +24,10 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
   the line.
 - **Subagent rows show each agent's context.** With `/drain agents on`, a row's number and bar were
   every request of that agent added up, cache re-reads included, so an agent holding 156k of
-  context read 3.5M. A row now shows the agent's context as of its latest request, the same figure
-  Claude Code reports when the agent finishes. The added-up figure stays on the total line, now
-  called "tokens processed".
+  context read 3.5M. A row now shows the agent's context as of its latest request. That is close
+  to the figure Claude Code reports when the agent finishes, not equal to it: Claude Code's count
+  ran 0.5 to 0.9% higher in our test (157k where the row showed 156k). The added-up figure stays on
+  the total line, now called "tokens processed".
 - **A skill for Claude: `/brain-drain:levels`.** It tells a session how to read its own context
   and the account's 5-hour and weekly usage from Brain Drain: the note when it arrives, otherwise
   the session file Brain Drain writes. Claude loads it by itself before a large piece of work, or

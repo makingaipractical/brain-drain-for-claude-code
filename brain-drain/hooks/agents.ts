@@ -142,8 +142,9 @@ const ctx = (a: DrainAgent): number => a.context ?? 0
 
 /**
  * The rows under the gauge: one per agent (active first, then the most recently
- * written, at most MAX_ROWS), each showing the agent's context now (the figure
- * Claude Code reports when the agent finishes) with its bar scaled to the
+ * written, at most MAX_ROWS), each showing the agent's context now (close to the
+ * figure Claude Code reports when the agent finishes, which ran 0.5 to 0.9% higher
+ * on 28 October: 156,608 against 155,788) with its bar scaled to the
  * session's largest, then one total line summing every request's tokens.
  * Empty when the session has no agents.
  */
