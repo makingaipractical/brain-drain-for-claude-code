@@ -119,7 +119,7 @@ test('on by default at the context stages 20, 30, 35 and 50, each with its words
     }
   }
   expect(seen).toEqual(['30', '35', '50'])
-  expect(words[30]).toBe('For information: carry on.')
+  expect(words[30]).toBe('Wind down: finish the piece in hand, commit it, and start nothing new.')
   expect(words[35]).toMatch(/^Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on\.$/)
   expect(words[50]).toMatch(/^Close now: finish the piece in hand, commit it, write a summary/)
   // The 5-hour and weekly thresholds are off unless turned on.
@@ -238,7 +238,7 @@ test('BRAIN_DRAIN_NOTIFY turns it on and replaces the saved thresholds for the r
   const [first] = await submit($)
   expect(first).toContain('context 31%')
   // The run's words are for 35 and 5h 80 only: 30 keeps its default words.
-  expect(first!.split('\n').slice(1)).toEqual(['For information: carry on.'])
+  expect(first!.split('\n').slice(1)).toEqual(['Wind down: finish the piece in hand, commit it, and start nothing new.'])
   w.context = { tokens: 360000, window: 1000000, percent: 36 }
   w.rateLimits = LIMITS(85, 99)
   const [second] = await toolCall($)
@@ -371,7 +371,7 @@ test('a setup question that cannot be asked says the default stands', async ($, 
 test('a silenced top stage gives way to the next stage\'s words', () => {
   const n = notify.sanitize({ text: { 'context:35': '' } })
   const f = { context: { pct: 36, tokens: 360000, window: 1000000 } }
-  expect(notify.noticeText(f, n, ['context:30', 'context:35'], 0).split('\n').slice(1)).toEqual(['For information: carry on.'])
+  expect(notify.noticeText(f, n, ['context:30', 'context:35'], 0).split('\n').slice(1)).toEqual(['Wind down: finish the piece in hand, commit it, and start nothing new.'])
   expect(notify.noticeText(f, n, ['context:35'], 0).includes('\n')).toBe(false)
 })
 

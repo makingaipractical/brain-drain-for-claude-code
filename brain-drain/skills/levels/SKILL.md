@@ -30,7 +30,7 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 The project's own rules on thresholds come first. Where it has none:
 
 - Never call the context full, or wind down for its sake, without a figure. Read it first (above).
-- A notice's own words say what to do at that level; with the defaults: at 20 and 30%, carry on; from 35%, finish the piece in hand and close unless going on clearly makes sense; from 50%, finish the piece, commit it, write a summary of where things stand, and close.
+- A notice's own words say what to do at that level; with the defaults: at 20%, carry on; from 30%, finish the piece in hand, commit it, and start nothing new; from 35%, finish the piece in hand and close unless going on clearly makes sense; from 50%, finish the piece, commit it, write a summary of where things stand, and close.
 - With no notice to go by, from 50% finish the piece in hand and save it before starting anything large, and nearer the limit write down where you are somewhere that survives compaction (a file, a ticket).
 - With the five-hour window nearly spent, do not fan out subagents: each draws on the same window, and one cut off mid-run leaves half-done work. Work one at a time, or stop at a clean point and name the reset time.
 - With the week above its pace line, prefer the smaller way to the same result.

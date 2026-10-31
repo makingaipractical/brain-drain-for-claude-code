@@ -8,11 +8,12 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
 - **Brain Drain asks whether Claude should be told how full its context is.** The first time it
   starts in an interactive session, it asks, offering on at 20, 30, 35 and 50% as the default; you
   can also pick Off or type other levels. When the context passes a level, Brain Drain adds a short
-  note to what Claude reads: a line of facts, then what to do. At 20 and 30% it is for information;
-  at 35% it suggests finishing the piece in hand and closing, unless going on clearly makes sense;
-  at 50% it says to close now: finish the piece, commit it, write a summary. Until now this notice
-  was off unless you turned it on, spoke at 70% and 90% only, and stated facts alone. Each level is
-  told once, and again after a compaction. `/drain notify off` stops it; `/drain notify context 30 50`
+  note to what Claude reads: a line of facts, then what to do. At 20% it is for information; at 30%
+  it says to finish the piece in hand, commit it and start nothing new; at 35% it suggests
+  finishing the piece in hand and closing, unless going on clearly makes sense; at 50% it says to
+  close now: finish the piece, commit it, write a summary. Until now this notice was off unless you
+  turned it on, spoke at 70% and 90% only, and stated facts alone. Each level is told once, and
+  again after a compaction. `/drain notify off` stops it; `/drain notify context 30 50`
   sets other levels; `/drain notify text context 35 "..."` replaces a level's words. If you had
   changed any notice setting, you are not asked and your settings stay as they were; if you only
   turned it on and off again, that cannot be told apart from never touching it, so you are asked.

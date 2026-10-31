@@ -7,13 +7,13 @@ import { clock, fmtTokens } from './core.ts'
 
 // On by default for the context stages (MC-6373): a session that is not told
 // does not know to look. The first interactive session asks the user, offering
-// these. 20 and 30 are information; at 35 the note suggests closing, at 50 it
-// says to close. A user's own words for a stage replace these; stored as an
+// these. 20 is information; at 30 the note says to finish the piece in hand
+// and start nothing new, at 35 it suggests closing, at 50 it says to close. A user's own words for a stage replace these; stored as an
 // empty string, they silence them. The 5-hour and weekly thresholds are there
 // to turn on.
 export const DEFAULT_TEXT: Readonly<Record<string, string>> = {
   'context:20': 'For information: carry on.',
-  'context:30': 'For information: carry on.',
+  'context:30': 'Wind down: finish the piece in hand, commit it, and start nothing new.',
   'context:35': 'Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.',
   'context:50': 'Close now: finish the piece in hand, commit it, write a summary of where things stand, and end the session.',
 }

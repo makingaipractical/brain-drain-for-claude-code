@@ -593,8 +593,8 @@ const ASKED_KEY = 'notifyAsked'
 const ASK_ON = 'On at 20, 30, 35, 50%'
 const ASK_OFF = 'Off'
 const ASK_QUESTION =
-  'Brain Drain can tell Claude how full its context is, so a session knows when to wind down: a note at 20 and 30%, ' +
-  'a suggestion to finish and close at 35%, and at 50% to close now. Under Other, type your own levels, e.g. 25 40 60. Turn it on?'
+  'Brain Drain can tell Claude how full its context is, so a session knows when to wind down: a note at 20%, ' +
+  'at 30% to finish the piece in hand and start nothing new, a suggestion to finish and close at 35%, and at 50% to close now. Under Other, type your own levels, e.g. 25 40 60. Turn it on?'
 
 /**
  * Setting up: the first interactive session of a user who never chose any

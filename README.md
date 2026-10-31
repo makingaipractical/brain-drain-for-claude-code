@@ -66,7 +66,8 @@ Consider closing: finish the piece in hand and close the session, unless it clea
   question is dismissed, the offered default stands and a notice says so. If you changed any notice setting in an
   earlier version, it does not ask, and your settings stay as they were; turning the note on and off
   again cannot be told apart from never touching it, so then it asks.
-- **What each level says by default.** At 20 and 30%: for information, carry on. At 35%: consider
+- **What each level says by default.** At 20%: for information, carry on. At 30%: wind
+  down; finish the piece in hand, commit it, and start nothing new. At 35%: consider
   closing; finish the piece in hand and close, unless it clearly makes sense to go on. At 50%: close
   now; finish the piece in hand, commit it, write a summary of where things stand, and end the
   session. Your own words replace these: `/drain notify text context 35 "your words"`. The same
