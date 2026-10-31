@@ -57,8 +57,8 @@ export type DrainAgent = {
   /** Every request's input + cache write + cache read + output, each response counted once. */
   tokens: number
   output: number
-  /** The latest response's input + cache write + cache read + output: the agent's context now. */
-  context: number
+  /** The latest response's input + cache write + cache read + output: the agent's context now. Absent on a row stored before 0.3.0. */
+  context?: number
   requests: number
   model?: string
   effort?: string

@@ -16,7 +16,8 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
   sets other levels; `/drain notify text context 35 "..."` replaces a level's words. If you had
   changed any notice setting, you are not asked and your settings stay as they were; if you only
   turned it on and off again, that cannot be told apart from never touching it, so you are asked.
-  A question left unanswered leaves the default on. `claude -p` runs cannot ask: they get the note
+  A question left unanswered leaves the default on. Sessions that are not interactive cannot ask:
+  `claude -p` runs, and, when we last tested it, Claude Code's VS Code chat panel. They get the note
   with your saved settings, or the default. The 5-hour and weekly thresholds are now off unless
   you set them (`/drain notify 5h 80 95`, `/drain notify week on`); their figures still appear in
   the line.
@@ -25,6 +26,10 @@ What changed in each version of Brain Drain for Claude Code, the mod. Update wit
   context read 3.5M. A row now shows the agent's context as of its latest request, the same figure
   Claude Code reports when the agent finishes. The added-up figure stays on the total line, now
   called "tokens processed".
+- **A skill for Claude: `/brain-drain:levels`.** It tells a session how to read its own context
+  and the account's 5-hour and weekly usage from Brain Drain: the note when it arrives, otherwise
+  the session file Brain Drain writes. Claude loads it by itself before a large piece of work, or
+  when asked how full its context is.
 
 ## 0.2.1 — 2026-10-21
 

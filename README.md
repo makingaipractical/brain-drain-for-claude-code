@@ -64,7 +64,8 @@ Consider closing: finish the piece in hand and close the session, unless it clea
   Code's own question dialog, whether to turn the note on. The default it offers is on, at 20, 30,
   35 and 50%. You can pick it, pick Off, or type other levels (`25 40 60`). It asks once; if the
   question is dismissed, the offered default stands and a notice says so. If you changed any notice setting in an
-  earlier version, it does not ask, and your settings stay as they were.
+  earlier version, it does not ask, and your settings stay as they were; turning the note on and off
+  again cannot be told apart from never touching it, so then it asks.
 - **What each level says by default.** At 20 and 30%: for information, carry on. At 35%: consider
   closing; finish the piece in hand and close, unless it clearly makes sense to go on. At 50%: close
   now; finish the piece in hand, commit it, write a summary of where things stand, and end the
@@ -77,10 +78,13 @@ Consider closing: finish the piece in hand and close the session, unless it clea
 - The 5-hour and weekly figures ride along in the line. Thresholds of their own are off unless you
   set them: `/drain notify 5h 80 95` for the 5-hour window, `/drain notify week on` for weekly use
   going above the pace line (the share of the week gone since your weekly reset, plus 5 points).
+- A skill, `/brain-drain:levels`, tells Claude how to read these figures itself; it loads on its own
+  before a large piece of work or when Claude is asked how full its context is.
 - Other context levels: `/drain notify context 30 50`. `/drain notify off` turns the note off;
   `/drain notify` shows what is set.
 - It works in non-interactive `claude -p` runs too, from the first tool call on, with your saved
-  settings, or the default if you never chose; such a run cannot ask. Nothing can arrive before
+  settings, or the default if you never chose; such a run cannot ask. Nor, when we last tested it,
+  can a session in Claude Code's VS Code chat panel, which runs as non-interactive. Nothing can arrive before
   Claude Code's first response, because the figures do not exist until then.
 
 For unattended runs, the environment variable `BRAIN_DRAIN_NOTIFY` overrides your saved settings

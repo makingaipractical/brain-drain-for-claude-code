@@ -655,7 +655,7 @@ async function notifyCommand($: $, args: string): Promise<string> {
   if (sub === 'on' || sub === 'off') {
     await save({ on: sub === 'on' })
     return sub === 'on'
-      ? `Self-notice on: when this session crosses a threshold, the model gets one line of facts with the next prompt or tool result. /drain notify shows the thresholds.${envNote}`
+      ? `Self-notice on: when this session crosses a threshold, the model gets a line of facts and what to do, with the next prompt or tool result. /drain notify shows the thresholds.${envNote}`
       : `Self-notice off.${envNote}`
   }
   const kind = THRESHOLD_KIND[sub]
