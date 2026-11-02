@@ -3,7 +3,7 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
-## 0.3.0 — 2026-10-31
+## 0.3.0 — 2026-11-02
 
 - **Brain Drain asks whether Claude should be told how full its context is.** The first time it
   starts in an interactive session, it asks, offering on at 20, 30, 35 and 50% as the default; you
