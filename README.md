@@ -7,8 +7,9 @@ limits is left — right under the prompt in Claude Code.
 
 Brain Drain is a Claude Code mod: a plugin that runs inside Claude Code and reads its figures
 from Claude Code itself. It never calls a model, makes no network requests, and never changes
-what you type. The one thing it can add to what Claude reads is a short note when the context
-passes set levels, so Claude knows how full its own context is. The first time Brain Drain starts
+what you type. It adds two things to what Claude reads: the name and description of its skill,
+`/brain-drain:levels`, which Claude Code lists like any installed skill, and a short note when the
+context passes set levels, so Claude knows how full its own context is. The first time Brain Drain starts
 in an interactive session, it asks whether to turn that note on, and the default it offers is on,
 at 20, 30, 35 and 50%; `/drain notify off` stops it at any time. To check
 this yourself before installing, clone the repository and run `claude plugin validate ./brain-drain`:
