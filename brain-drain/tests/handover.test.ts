@@ -58,6 +58,68 @@ test('a non-interactive run writes no session file, no account TTL, and spawns n
   expect(w.runs).toEqual([])
 })
 
+// MC-8152: a headless run's file goes to a folder no gauge lists, once its limits are known.
+const HEADLESS = `${HOME}/.claude/fuel-gauge-mod/headless`
+const FIVE_HOUR = [{ kind: 'five_hour', percentUsed: 30, resetsAt: '2026-11-18T09:00:00Z' }] as const
+async function drain($: { command: { run: (e: never) => Promise<unknown> } }): Promise<string> {
+  const cmd = { command: 'drain', args: '', origin: { kind: 'composer' }, presentation: {} }
+  return ((await $.command.run(cmd as never)) as { text: string }).text
+}
+
+async function headlessRun($: Parameters<typeof start>[0] & { command: { run: (e: never) => Promise<unknown> } }, on: never, settings: unknown): Promise<void> {
+  const w = world(on, { settings, context: { tokens: 160000, window: 1000000, percent: 16 }, rateLimits: [...FIVE_HOUR] })
+  w.surfaces = []
+  await start($, false)
+  await settle()
+  expect(sessionFile(w, HEADLESS)).toMatchObject({ writer: 'mod', session_id: SID, used_percentage: 16, rate_limit_5h_pct: 30 })
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge-mod`)).toBeUndefined()
+  expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`))).toEqual([`${HEADLESS}/${SID}.json`])
+  expect(w.runs.filter(r => r[0] === 'mkdir')).toEqual([['mkdir', '-p', HEADLESS]])
+  expect(await drain($)).toContain('Session file: ~/.claude/fuel-gauge-mod/headless (not an interactive session')
+}
+
+test('a non-interactive run with its limits known writes its file to the headless folder only (bridge live)', async ($, on) => {
+  await headlessRun($ as never, on as never, BRIDGE_SETTINGS)
+})
+
+test('a non-interactive run with its limits known writes its file to the headless folder only (bridge unwired)', async ($, on) => {
+  await headlessRun($ as never, on as never, { statusLine: { type: 'command', command: 'my-line.sh' } })
+})
+
+test('without host commands a headless run writes nothing', async ($, on) => {
+  const w = world(on, { noProcess: true, rateLimits: [...FIVE_HOUR] })
+  w.surfaces = []
+  await start($, false)
+  await settle()
+  expect([...w.files.keys()].filter(k => k.startsWith(`${HOME}/.claude/`))).toEqual([])
+})
+
+test('a headless run prunes the headless folder after six hours and leaves the gauge folders alone', async ($, on) => {
+  const shadow = `${HOME}/.claude/fuel-gauge-mod`
+  const w = world(on, { settings: BRIDGE_SETTINGS, files: {
+    [`${HEADLESS}/old.json`]: '{}', [`${HEADLESS}/recent.json`]: '{}', [`${HEADLESS}/old.json.mod-a.tmp`]: '',
+    [`${shadow}/old-session.json`]: '{}',
+  } })
+  w.surfaces = []
+  const now = w.clock.now()
+  w.mtimes.set(`${HEADLESS}/old.json`, now - 7 * 3600_000)
+  w.mtimes.set(`${HEADLESS}/recent.json`, now - 5 * 3600_000)
+  w.mtimes.set(`${HEADLESS}/old.json.mod-a.tmp`, now - 2 * 3600_000)
+  w.mtimes.set(`${shadow}/old-session.json`, now - 400 * 3600_000)
+  await start($, false)
+  await settle()
+  expect([...w.files.keys()].sort()).toEqual([`${HEADLESS}/recent.json`, `${shadow}/old-session.json`].sort())
+})
+
+test('the shadow prune keeps labels.json, which the user keeps', async ($, on) => {
+  const labels = `${HOME}/.claude/fuel-gauge-mod/labels.json`
+  const w = world(on, { settings: BRIDGE_SETTINGS, files: { [labels]: '{}' } })
+  w.mtimes.set(labels, w.clock.now() - 400 * 3600_000)
+  await start($)
+  expect(w.files.has(labels)).toBe(true)
+})
+
 // B2: session.start never fires on /clear, so the reading must follow the session id.
 test('after /clear the new session file starts clean and the old one is left as it was', async ($, on) => {
   const w = world(on, { settings: BRIDGE_SETTINGS, context: { tokens: 310000, window: 1000000, percent: 31 } })

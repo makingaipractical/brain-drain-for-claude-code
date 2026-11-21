@@ -8,6 +8,8 @@ export const SID = 'abcdef12-0000-0000-0000-000000000000'
 export const ROOT = '/work/proj'
 /** Where Claude Code keeps a session's transcript: the project folder, every other character a dash. */
 export const transcript = (sid = SID) => `${HOME}/.claude/projects/${ROOT.replace(/[^A-Za-z0-9]/g, '-')}/${sid}.jsonl`
+/** Where a user places their legal check program (MC-7401). */
+export const LEGAL_CHECK_PATH = `${HOME}/.claude/fuel-gauge/legal-check`
 export const BRIDGE_SETTINGS = { statusLine: { type: 'command', command: '/h/.claude/scripts/context-bridge.sh' } }
 
 export type World = {
@@ -52,11 +54,16 @@ export type WorldOptions = {
   mvFails?: boolean
   /** Environment beyond HOME. */
   env?: Record<string, string>
+  /**
+   * A legal check program placed at `~/.claude/fuel-gauge/legal-check` (MC-7401),
+   * answering for the folders it is given; `throw` makes the run itself fail.
+   */
+  legalCheck?: (dirs: string[]) => { exitCode: number; stdout: string } | 'throw'
 }
 
 export function world(on: On, o: WorldOptions = {}): World {
   const w: World = {
-    files: new Map(Object.entries(o.files ?? {})),
+    files: new Map(Object.entries({ ...(o.files ?? {}), ...(o.legalCheck ? { [LEGAL_CHECK_PATH]: '#!/bin/sh\n' } : {}) })),
     runs: [],
     status: [],
     toasts: [],
@@ -156,6 +163,14 @@ export function world(on: On, o: WorldOptions = {}): World {
       const n = Number(argv[2])
       return { value: { exitCode: 0, stdout: text.slice(Math.max(0, text.length - n)), stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     }
+    if (argv[0] === LEGAL_CHECK_PATH && o.legalCheck) {
+      const got = o.legalCheck(argv.slice(1))
+      if (got === 'throw') return { deny: 'the check could not run' }
+      return { value: { ...got, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    }
+    // The mod's own process id (MC-7061), and the children folder it makes.
+    if (argv[0] === 'sh' && argv[2] === 'echo $PPID') return { value: { exitCode: 0, stdout: '4242\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    if (argv[0] === 'mkdir') return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
     return { value: { exitCode: 127, stdout: '', stderr: 'unknown', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.id', () => ({ value: w.sid }))

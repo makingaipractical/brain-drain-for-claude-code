@@ -1,6 +1,6 @@
 ---
 name: levels
-description: How full this session's context window is, and how much of the account's five-hour and weekly usage is left, read from Brain Drain. Use before a large piece of work or a fan-out of subagents, when a line starting "Brain Drain:" appears in your context, or when asked how full your context is or how much usage is left.
+description: How full this session's context window is, and how much of the account's five-hour and weekly usage is left, read from Brain Drain. Use before a large piece of work or a fan-out of subagents, when a line starting "Brain Drain," appears in your context, or when asked how full your context is or how much usage is left.
 ---
 
 # Your levels, from Brain Drain
@@ -14,15 +14,17 @@ Brain Drain is a Claude Code mod that reads Claude Code's own figures. Three of 
 ## Reading them
 
 1. **The notice.** When the context passes a level the user chose (offered by default: 20, 30, 35 and 50%), Brain Drain adds a short note to your context, a line of facts and then what to do:
-   `Brain Drain: context 36% (362k of 1M) · 5-hour window 82%, resets 18:20 · week 40% (pace line 48%)`
-   `Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.`
-   Each level is told once, and again after a compaction. The 5-hour and weekly figures ride along as facts; they have thresholds of their own only if the user turned them on. The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. The line after the facts is the user's instruction for that level, theirs or the default they accepted: follow it.
-2. **The session file**, when no line has arrived. Brain Drain writes one file per interactive session, named by the session id Claude Code puts in `CLAUDE_CODE_SESSION_ID`:
+   `Brain Drain, you@example.com, read 20:14: context 36% (362k of 1M) · 5-hour window 82% used, resets 22:00 (in 1 h 46 min) · week 40% used, resets Sun 22 Nov 08:00 (in 5 d 11 h; pace line 27%). An automatic note from the Brain Drain mod, not typed by the user.`
+   `Set ahead of time for this level: Consider closing: finish the piece in hand and close the session, unless it clearly makes sense to go on.`
+   The line names the account the 5-hour and weekly figures belong to (its email, or a short name such as `work@` the user gave it) and the local time they were read. Each reset gives its local clock time and how long until it; a weekday and date appear only when the reset is not today. `account not certain` means Brain Drain could not be sure which account this is: do not name one. A window shown as `reset at ..., no new figure yet` has started again and its new figure is not in yet; `no figures yet` means nothing is reported before Claude Code's first response.
+   The facts line also comes alone, with no words after it: at the session's first prompt or tool call, after a compaction, when the 5-hour window starts again, when the account changes, and every 30 minutes by default. The newest line is the one that counts.
+   Each level is told once, and again after a compaction. The 5-hour and weekly figures ride along as facts; they have thresholds of their own only if the user turned them on. The pace line is the share of the week gone since the weekly reset, plus a margin; above it, the week is being spent faster than it lasts. The note can arrive inside the user's turn, after their own message; it is the mod's, not words they typed just now, so do not answer it as if they had. The line after the facts is the instruction for that level, set ahead of time: the user's own, the default they accepted, or the words of whatever launched this session for them (a scheduler or runner can set them). Follow it.
+2. **The session file**, when no line has arrived. Brain Drain writes one file per session, named by the session id Claude Code puts in `CLAUDE_CODE_SESSION_ID`; a `claude -p` run's file sits in a folder of its own:
    ```bash
-   f=~/.claude/fuel-gauge-mod/$CLAUDE_CODE_SESSION_ID.json; [ -f "$f" ] || f=~/.claude/fuel-gauge/$CLAUDE_CODE_SESSION_ID.json; cat "$f"
+   f=~/.claude/fuel-gauge-mod/$CLAUDE_CODE_SESSION_ID.json; [ -f "$f" ] || f=~/.claude/fuel-gauge/$CLAUDE_CODE_SESSION_ID.json; [ -f "$f" ] || f=~/.claude/fuel-gauge-mod/headless/$CLAUDE_CODE_SESSION_ID.json; cat "$f"
    ```
-   `used_percentage` of `context_window_size` is the context. `rate_limit_5h_pct` and `rate_limit_7d_pct` are the two windows (-1: not reported), `rate_limit_5h_reset` and `rate_limit_7d_reset` their reset times in Unix seconds. `timestamp` says how old the reading is. `context_unknown: true` means just compacted or cleared: no figure until the next reply.
-   A `claude -p` run writes no file; there only the notice line reports. A subagent gets no notice line, and the file describes the main session, not the subagent.
+   `used_percentage` of `context_window_size` is the context. `rate_limit_5h_pct` and `rate_limit_7d_pct` are the two windows (-1: not reported), `rate_limit_5h_reset` and `rate_limit_7d_reset` their reset times in Unix seconds. `account_email` and `account_uuid` name the account those two windows belong to; `null` means the account is not certain, so do not name one. `timestamp` says how old the reading is. `context_unknown: true` means just compacted or cleared: no figure until the next reply.
+   A `claude -p` run's file appears only once its first figures are in; until then only the notice line reports. A subagent gets no notice line, and the file describes the main session, not the subagent.
 3. **Neither.** Brain Drain is not installed here, or not telling you. Say that you cannot see your levels; the user sees them with `/context` and `/usage`.
 
 ## What a level means for the work

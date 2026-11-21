@@ -150,7 +150,7 @@ test('a host that keeps $.state across /clear still follows the id, and nothing 
 })
 
 test('a session that did not report itself interactive stays without a file after a /clear', async ($, on) => {
-  // An attached surface, as in Anthropic's VS Code chat panel, though session.start said not interactive.
+  // An attached surface, though session.start said not interactive, and nothing marks it the chat panel.
   const w = host(on)
   await start($, false)
   await clear(w)
@@ -158,6 +158,68 @@ test('a session that did not report itself interactive stays without a file afte
   expect(sessionFile(w, PRIMARY, NEW)).toBeUndefined()
   expect(sessionFile(w, SHADOW, NEW)).toBeUndefined()
   expect(await drain($)).toContain('not an interactive session')
+})
+
+// Anthropic's VS Code chat panel: session.start says not interactive and nothing
+// draws yet; the panel's surface attaches after it (MC-5948).
+test('a chat-panel session writes its file from its first request, and again after a /clear', async ($, on) => {
+  const w = host(on, { context: { tokens: 310000, window: 1000000, percent: 31 } })
+  w.surfaces = []
+  await start($, false)
+  expect(sessionFile(w, PRIMARY)).toBeUndefined()
+  w.surfaces = ['vscode']
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toMatchObject({ writer: 'mod', session_id: SID, used_percentage: 31 })
+  expect(await drain($)).not.toContain('not an interactive session')
+  w.context = { window: 1000000 }
+  await clear(w)
+  await step($)
+  expect(sessionFile(w, PRIMARY, NEW)).toMatchObject({ writer: 'mod', session_id: NEW })
+})
+
+test('the panel\'s entrypoint with a surface attached writes; /drain says so before the first request', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } })
+  await start($, false)
+  expect(await drain($)).not.toContain('not an interactive session')
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toMatchObject({ writer: 'mod', session_id: SID })
+})
+
+// The Code tab of the Claude desktop app starts its sessions the same way (MC-7763).
+test('a desktop-app session writes its file once its surface attaches', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } })
+  w.surfaces = []
+  await start($, false)
+  w.surfaces = ['desktop']
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toMatchObject({ writer: 'mod', session_id: SID })
+  expect(await drain($)).not.toContain('not an interactive session')
+})
+
+test('a -p run started inside a desktop-app session writes nothing', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-desktop' } })
+  w.surfaces = []
+  await start($, false)
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toBeUndefined()
+  expect(sessionFile(w, SHADOW)).toBeUndefined()
+})
+
+test('a -p run started inside a panel session, carrying its entrypoint, writes nothing', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } })
+  w.surfaces = []
+  await start($, false)
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toBeUndefined()
+  expect(sessionFile(w, SHADOW)).toBeUndefined()
+  expect(await drain($)).toContain('not an interactive session')
+})
+
+test('a hook before session.start never takes the panel', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' } })
+  w.surfaces = ['vscode']
+  await step($)
+  expect(sessionFile(w, PRIMARY)).toBeUndefined()
 })
 
 test('an in-process /resume is followed within a second, with no event and no request', async ($, on) => {

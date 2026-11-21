@@ -11,11 +11,14 @@ export const OK = 'success'
 export const WARN = 'warning'
 export const BAD = 'error'
 
-// The extension's thresholds: context 60/80, cache 60 s/15 s, rate limits 70/90.
+// The extension's thresholds: context 60/80, rate limits 70/90; the cache has its
+// own (MC-7064): a one-hour cache 25 min/5 min, a five-minute cache 60 s/15 s.
 export const CONTEXT_WARN = 60
 export const CONTEXT_DANGER = 80
 export const CACHE_WARN_S = 60
 export const CACHE_DANGER_S = 15
+export const CACHE_LONG_WARN_S = 25 * 60
+export const CACHE_LONG_DANGER_S = 5 * 60
 export const LIMIT_WARN = 70
 export const LIMIT_DANGER = 90
 
@@ -58,12 +61,25 @@ export function cacheState(r: Pick<DrainReading, 'lastApiS' | 'ttl'>, nowS: numb
   return { kind: 'live', left }
 }
 
-export function cacheColor(c: CacheState, ctx: string | undefined): string | undefined {
+/**
+ * The countdown's colour is its own, never the context's: otherwise a 57-minute
+ * cache shows yellow because the context reached its warning level. Green, then
+ * for a cache that lives longer than five minutes (the one-hour cache) yellow
+ * from 25 minutes left and red from 5; a five-minute cache keeps yellow under 60
+ * seconds and red under 15, since the one-hour cache's minutes would make it red
+ * from its first second.
+ */
+export function cacheColor(c: CacheState, ttl: number): string | undefined {
   if (c.kind === 'expired') return BAD
   if (c.kind === 'none') return undefined
+  if (ttl > 300) {
+    if (c.left <= CACHE_LONG_DANGER_S) return BAD
+    if (c.left <= CACHE_LONG_WARN_S) return WARN
+    return OK
+  }
   if (c.left < CACHE_DANGER_S) return BAD
   if (c.left < CACHE_WARN_S) return WARN
-  return ctx
+  return OK
 }
 
 export function limitColor(pct: number): string | undefined {
@@ -111,6 +127,52 @@ export function clock(epochS: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/** Local day and time, `Sun 22 Nov 08:00`: for a moment days away, such as the weekly reset. */
+export function dayClock(epochS: number): string {
+  const d = new Date(epochS * 1000)
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${clock(epochS)}`
+}
+
+/**
+ * Time left until a moment, `in 46 min`, `in 1 h 5 min`, `in 2 h`, and from a
+ * day on `in 5 d 8 h`, `in 1 d`; undefined once it has come. Minutes round up,
+ * so a moment not yet come never reads as `in 0 min`; past a day the minutes
+ * are dropped, since the clock time beside it says the rest.
+ */
+export function timeLeft(untilS: number, nowS: number): string | undefined {
+  const s = untilS - nowS
+  if (s <= 0) return undefined
+  const min = Math.ceil(s / 60)
+  if (min < 60) return `in ${min} min`
+  if (min >= 1440) {
+    const d = Math.floor(min / 1440)
+    const h = Math.floor((min % 1440) / 60)
+    return h === 0 ? `in ${d} d` : `in ${d} d ${h} h`
+  }
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m === 0 ? `in ${h} h` : `in ${h} h ${m} min`
+}
+
+/** Whether two moments fall on the same local calendar day. */
+export function sameDay(aS: number, bS: number): boolean {
+  const a = new Date(aS * 1000)
+  const b = new Date(bS * 1000)
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+/**
+ * A reset moment as a note names it: the clock time alone when it falls today
+ * (local time), else with its weekday and date, `Sun 22 Nov 08:00`. A five-hour
+ * reset after midnight is not today, so it gets the date too.
+ */
+export function resetClock(atS: number, nowS: number): string {
+  return sameDay(atS, nowS) ? clock(atS) : dayClock(atS)
+}
+
 export function limitLabel(kind: string): string {
   if (kind === 'five_hour') return '5h'
   if (kind === 'seven_day') return 'wk'
@@ -123,11 +185,35 @@ export function limitLabel(kind: string): string {
 export type View = {
   ctx: { pct?: number; unknown: boolean; implausible: boolean; color?: string }
   cache: CacheState & { color?: string; ttl: number }
-  /** `resetsAt` only for the 5-hour window, and only while it lies ahead. */
-  limits: { label: string; pct: number; color?: string; resetsAt?: number }[]
+  /**
+   * `resetsAt` only for the 5-hour window, and only while it lies ahead.
+   * `pct` is missing on the 5-hour entry when Claude Code sends a weekly
+   * figure but none for the 5-hour window: it is drawn as `5h –`, so a plan
+   * without a 5-hour limit does not look like a broken gauge.
+   */
+  limits: { label: string; pct?: number; color?: string; resetsAt?: number }[]
   modelEffort?: string
   /** Set while the prompt box holds text and the cache has expired. */
   cold?: { tokens?: number }
+}
+
+function viewLimits(list: DrainLimit[], nowS: number): View['limits'] {
+  const out: View['limits'] = list.map(l => ({
+    label: limitLabel(l.kind),
+    pct: l.pct,
+    color: limitColor(l.pct),
+    resetsAt: l.kind === 'five_hour' && l.resetsAt !== undefined && l.resetsAt > nowS ? l.resetsAt : undefined,
+  }))
+  // A weekly figure with no 5-hour one: the plan reports no 5-hour limit. With
+  // neither figure (an API key, or before the first response) nothing is drawn.
+  const week = list.findIndex(l => l.kind === 'seven_day')
+  if (week >= 0 && !list.some(l => l.kind === 'five_hour')) out.splice(week, 0, { label: limitLabel('five_hour') })
+  return out
+}
+
+/** A limit's figure: `95%`, or `–` when the plan sends none. */
+function limitNum(l: View['limits'][number], withPct: boolean): string {
+  return l.pct === undefined ? '–' : `${Math.round(l.pct)}${withPct ? '%' : ''}`
 }
 
 export function makeView(r: DrainReading, nowS: number, drafting: boolean): View {
@@ -138,13 +224,8 @@ export function makeView(r: DrainReading, nowS: number, drafting: boolean): View
   const effort = effortLabel(r.effort)
   return {
     ctx: { pct: r.percent, unknown: r.unknown, implausible, color: ctxColor },
-    cache: { ...cache, color: cacheColor(cache, ctxColor), ttl: r.ttl },
-    limits: r.rateLimits.map(l => ({
-      label: limitLabel(l.kind),
-      pct: l.pct,
-      color: limitColor(l.pct),
-      resetsAt: l.kind === 'five_hour' && l.resetsAt !== undefined && l.resetsAt > nowS ? l.resetsAt : undefined,
-    })),
+    cache: { ...cache, color: cacheColor(cache, r.ttl), ttl: r.ttl },
+    limits: viewLimits(r.rateLimits, nowS),
     modelEffort: model === undefined ? undefined : effort === undefined ? model : `${model}·${effort}`,
     cold: drafting && cache.kind === 'expired' ? { tokens: r.tokens } : undefined,
   }
@@ -196,7 +277,7 @@ function limitsGroup(v: View, glue: string, withPct: boolean, withReset = false)
   const g: Row = []
   v.limits.forEach((l, i) => {
     if (i > 0) g.push({ text: glue, dim: true })
-    g.push({ text: `${l.label} `, dim: true }, { text: `${Math.round(l.pct)}${withPct ? '%' : ''}`, color: l.color })
+    g.push({ text: `${l.label} `, dim: true }, { text: limitNum(l, withPct), color: l.color })
     if (withReset && l.resetsAt !== undefined) g.push({ text: ` ↻${clock(l.resetsAt)}`, dim: true })
   })
   return g
@@ -239,6 +320,10 @@ function barsRow(v: View, withModel: boolean, wide: boolean): Row {
   const lim: Row = []
   v.limits.forEach((l, i) => {
     if (i > 0) lim.push({ text: '  ' })
+    if (l.pct === undefined) {
+      lim.push({ text: `${l.label} `, dim: true }, { text: '–' })
+      return
+    }
     lim.push({ text: `${l.label} `, dim: true }, ...bar(l.pct / 100, wide ? 5 : 3, l.color), {
       text: ` ${Math.round(l.pct)}%`,
       color: l.color,
@@ -273,7 +358,7 @@ function compactRow(v: View, withLimits: boolean): Row {
   if (c) row.push({ text: ' ◷', dim: true }, { text: v.cache.kind === 'expired' ? 'exp' : c, color: v.cache.color })
   if (withLimits) {
     for (const l of v.limits) {
-      row.push({ text: ` ${l.label}`, dim: true }, { text: String(Math.round(l.pct)), color: l.color })
+      row.push({ text: ` ${l.label}`, dim: true }, { text: limitNum(l, false), color: l.color })
     }
   }
   return row
@@ -332,7 +417,7 @@ export function lineText(v: View): string {
   const parts = [`🧠 ${pctText(v)}`]
   const c = cacheText(v)
   if (c) parts.push(v.cache.kind === 'expired' ? 'cache expired' : `cache ${c}`)
-  for (const l of v.limits) parts.push(`${l.label} ${Math.round(l.pct)}%`)
+  for (const l of v.limits) parts.push(`${l.label} ${limitNum(l, true)}`)
   if (v.modelEffort) parts.push(v.modelEffort)
   let text = parts.join(' · ')
   if (v.cold) {
@@ -362,6 +447,13 @@ export function bridgeLive(settings: unknown): boolean {
 
 export const SHADOW_DIR = '.claude/fuel-gauge-mod'
 export const PRIMARY_DIR = '.claude/fuel-gauge'
+/**
+ * A non-interactive run's file (`claude -p`, an SDK run) goes here and nowhere
+ * else. Every reader of session files lists only the top of fuel-gauge/ and
+ * fuel-gauge-mod/, so a VS Code gauge never draws a headless run, and another
+ * tool that wants one reads this folder.
+ */
+export const HEADLESS_DIR = '.claude/fuel-gauge-mod/headless'
 
 export function outDirFor(home: string, live: boolean): string {
   return `${home}/${live ? SHADOW_DIR : PRIMARY_DIR}`
@@ -495,6 +587,126 @@ export function ledgerReport(misses: DrainMiss[], nowS: number): string[] {
   return lines
 }
 
+// ---------------------------------------------------------------- the account (MC-8006)
+
+/**
+ * The account a session's figures belong to. The engine's rate limits are the
+ * session's own login's, and every reader of the session files used to infer
+ * that account (from the weekly reset moment) because the file named none. A
+ * wrong guess put another account's week in front of a session.
+ *
+ * `$.session.identity()` answers only a mod managed settings install, so the
+ * mod reads what Claude Code itself reads: the host's word first
+ * (CLAUDE_CODE_ACCOUNT_UUID and CLAUDE_CODE_USER_EMAIL, which the desktop app
+ * and SDK hosts set, and which Claude Code only reads), then the login record
+ * of the session's configuration folder (`oauthAccount` in `.claude.json`
+ * under CLAUDE_CONFIG_DIR, else the home folder). The record holds the
+ * account's identity, never the credential.
+ *
+ * All of it correct or none of it: a part the host leaves out is taken from the
+ * record only when the record names the same account.
+ */
+export type Account = { uuid?: string; email?: string; source: 'session' | 'folder' }
+
+const word = (v: unknown): string | undefined => (typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined)
+
+/** The account a login record (a parsed `.claude.json`) names, or undefined. */
+export function accountInRecord(record: unknown): { uuid?: string; email?: string } | undefined {
+  if (typeof record !== 'object' || record === null) return undefined
+  const a = (record as { oauthAccount?: unknown }).oauthAccount
+  if (typeof a !== 'object' || a === null) return undefined
+  const o = a as Record<string, unknown>
+  const uuid = word(o.accountUuid)
+  const email = word(o.emailAddress)
+  return uuid || email ? { uuid, email } : undefined
+}
+
+/** Which account the session runs on, from the host's two variables and the folder's record. */
+export function sessionAccount(envUuid: string | undefined, envEmail: string | undefined, record: unknown): Account | undefined {
+  const uuid = word(envUuid)
+  const email = word(envEmail)
+  const rec = accountInRecord(record)
+  if (uuid || email) {
+    const same = rec !== undefined && (uuid ? rec.uuid === uuid : rec.email?.toLowerCase() === email!.toLowerCase())
+    return { uuid: uuid ?? (same ? rec.uuid : undefined), email: email ?? (same ? rec.email : undefined), source: 'session' }
+  }
+  return rec ? { ...rec, source: 'folder' } : undefined
+}
+
+export function sameAccount(a: Account | undefined, b: Account | undefined): boolean {
+  if (!a || !b) return false
+  if (a.uuid && b.uuid) return a.uuid === b.uuid
+  return !!a.email && !!b.email && a.email.toLowerCase() === b.email.toLowerCase()
+}
+
+/**
+ * Whether the folder's record now names another account than the one first
+ * read for this process. A /login since (here or in another process on the
+ * same folder) rewrites the record, and which login the running process then
+ * spends is not known from outside, so the file names no account from then on
+ * rather than a possibly wrong one. A record that cannot be read, or names no
+ * account, is no sign of a change. The host's variables never change for a
+ * process, so an account they named never changes either.
+ */
+export function accountChanged(first: Account | undefined, now: Account | undefined): boolean {
+  if (!first || first.source === 'session' || !now) return false
+  return !sameAccount(first, now)
+}
+
+/**
+ * The account as the self-notice names it: the short label the labels file
+ * gives its uuid, else the email, else `account` and the first 8 characters of
+ * its uuid, else `account not certain` (none found, or the login changed while
+ * the process ran). A label never stands in for an account not known.
+ */
+export function accountLabel(a: Account | 'changed' | undefined, labels?: Labels): string {
+  if (a === 'changed' || !a) return 'account not certain'
+  const label = a.uuid ? labels?.get(a.uuid) : undefined
+  if (label) return label
+  if (a.email) return a.email
+  return a.uuid ? `account ${a.uuid.slice(0, 8)}` : 'account not certain'
+}
+
+/**
+ * Short names for accounts, keyed by account uuid, from an optional file that
+ * another program on the machine writes (MC-8006). It sits at this fixed place
+ * under the home folder, whatever CLAUDE_CONFIG_DIR says. The mod only reads it.
+ */
+export const LABELS_FILE = '.claude/fuel-gauge-mod/labels.json'
+export const LABEL_MAX = 64
+export type Labels = ReadonlyMap<string, string>
+
+const CONTROL = /[\u0000-\u001f\u007f]/
+
+/**
+ * The labels a parsed labels file holds. Anything but an object of strings
+ * gives none; a label that is empty, longer than LABEL_MAX characters or holds
+ * a control character (a line break would split the note) is left out alone.
+ */
+export function labelsFrom(parsed: unknown): Labels {
+  const out = new Map<string, string>()
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return out
+  const entries = Object.entries(parsed as Record<string, unknown>)
+  if (!entries.every(([, v]) => typeof v === 'string')) return out
+  for (const [uuid, v] of entries) {
+    const label = (v as string).trim()
+    if (uuid.trim() === '' || label === '' || label.length > LABEL_MAX || CONTROL.test(label)) continue
+    out.set(uuid.trim(), label)
+  }
+  return out
+}
+
+/**
+ * The session file's account fields: null where the account is not known, so a
+ * reader does not guess. `changed`: the folder's login changed while this
+ * process ran, so its account is not known for the rest of it.
+ */
+
+export function accountFields(a: Account | 'changed' | undefined): Record<string, string | null> {
+  if (a === 'changed') return { account_uuid: null, account_email: null, account_source: 'changed' }
+  return { account_uuid: a?.uuid ?? null, account_email: a?.email ?? null, account_source: a ? a.source : null }
+}
+
 // ---------------------------------------------------------------- the session file
 
 export type Ids = { sessionId: string; cwd: string; projectDir: string }
@@ -505,7 +717,7 @@ function limitFields(limits: DrainLimit[], kind: string): { pct: number; reset: 
 }
 
 /** The bridge's session file, field for field, plus `writer: "mod"`. */
-export function sessionFile(r: DrainReading, ids: Ids, nowS: number): Record<string, unknown> {
+export function sessionFile(r: DrainReading, ids: Ids, nowS: number, account?: Account | 'changed'): Record<string, unknown> {
   const used = r.percent ?? 0
   const h5 = limitFields(r.rateLimits, 'five_hour')
   const d7 = limitFields(r.rateLimits, 'seven_day')
@@ -531,6 +743,8 @@ export function sessionFile(r: DrainReading, ids: Ids, nowS: number): Record<str
     rate_limit_7d_pct: d7.pct,
     rate_limit_7d_reset: d7.reset,
     effort_level: r.effort ?? '',
+    // The account the rate limits above belong to (MC-8006); null: not known.
+    ...accountFields(account),
     writer: 'mod',
   }
 }
@@ -576,11 +790,12 @@ export const HELP = [
   '/drain place below|above  draw under the prompt (default) or in the band above it',
   '/drain warn <seconds>  how long before expiry the alert fires (default 60, 0 turns it off)',
   '/drain sound on|off   play a short chime with the alert (off by default)',
-  '/drain agents on|off  prototype: one bar per subagent under the gauge, its context (off by default)',
+  '/drain agents on|off  one row per subagent or started session under the gauge, its context (on by default)',
   '/drain agents         the subagent rows as text',
   '/drain notify on|off  self-notice: a line of facts and what to do, to the model when a threshold is crossed (asked at setup; default on: context 20 30 35 50)',
   '/drain notify         the self-notice settings and the note as it would read now',
   '/drain notify context 30 50 | 5h 80 95 | week on|off | margin 5   thresholds (each list replaces the last; off clears)',
+  '/drain notify refresh 30 | off   the facts again this many minutes after the last note (default 30)',
   '/drain notify text context 35 "your text"   your own words after the facts when that threshold fires',
   '                      (text 5h 80 "...", text week "..."; no text clears it)',
   '                      BRAIN_DRAIN_NOTIFY in the environment overrides these for one run (see the README)',

@@ -92,14 +92,22 @@ describe('colours', () => {
     expect(i.ctx.color).toBeUndefined()
     expect(core.styleText('minimal', i)).toStartWith('🧠 ⚠ 120%')
   })
-  test('cache inherits context colour above 60 s, then yellow, red, expired', () => {
-    expect(view({ percent: 65, lastApiS: NOW - 3600 + 61 }).cache.color).toBe('warning')
-    expect(view({ percent: 10, lastApiS: NOW - 3600 + 61 }).cache.color).toBe('success')
-    expect(view({ lastApiS: NOW - 3600 + 59 }).cache.color).toBe('warning')
+  // MC-7064: never the context's colour. The views here carry a one-hour cache (ttl 3600).
+  test('a one-hour cache: green, yellow from 25 minutes left, red from 5, expired red; never the context colour', () => {
+    expect(view({ percent: 65, lastApiS: NOW - 3600 + 57 * 60 }).cache.color).toBe('success')
+    expect(view({ percent: 85, lastApiS: NOW - 3600 + 26 * 60 }).cache.color).toBe('success')
+    expect(view({ percent: 10, lastApiS: NOW - 3600 + 25 * 60 }).cache.color).toBe('warning')
+    expect(view({ percent: 10, lastApiS: NOW - 3600 + 6 * 60 }).cache.color).toBe('warning')
+    expect(view({ percent: 10, lastApiS: NOW - 3600 + 5 * 60 }).cache.color).toBe('error')
     expect(view({ lastApiS: NOW - 3600 + 14 }).cache.color).toBe('error')
     const ex = view({ lastApiS: NOW - 3600 - 5 })
     expect(ex.cache.color).toBe('error')
     expect(core.styleText('minimal', ex)).toContain('◷ expired')
+  })
+  test('a five-minute cache: green, yellow under 60 s, red under 15 s; never the context colour', () => {
+    expect(view({ ttl: 300, percent: 85, lastApiS: NOW - 300 + 120 }).cache.color).toBe('success')
+    expect(view({ ttl: 300, percent: 10, lastApiS: NOW - 300 + 59 }).cache.color).toBe('warning')
+    expect(view({ ttl: 300, percent: 10, lastApiS: NOW - 300 + 14 }).cache.color).toBe('error')
   })
   test('rate limits 70 / 90', () => {
     const v = view({ rateLimits: [{ kind: 'five_hour', pct: 69 }, { kind: 'seven_day', pct: 70 }, { kind: 'spend_limit', pct: 90 }] })
@@ -110,5 +118,29 @@ describe('colours', () => {
     expect(row.find(s => s.text === '85%')?.color).toBe('error')
     expect(row.find(s => s.text === '95%')?.color).toBe('error')
     expect(row.find(s => s.text === 'opus·medium')?.dim).toBe(true)
+  })
+})
+
+describe('a plan that sends no 5-hour limit', () => {
+  const weekOnly = () => view({ rateLimits: [{ kind: 'seven_day', pct: 44 }] })
+  test('every style draws 5h –, uncoloured, before the weekly figure', () => {
+    expect(core.styleText('minimal', weekOnly())).toBe('🧠 16% │ ◷ 59:58 │ 5h – · wk 44% │ opus·medium')
+    expect(core.styleText('bars', weekOnly())).toBe('ctx ▰▰▱▱▱▱▱▱▱▱ 16% │ cache ▰▰▰▰▰▰▰▰▰▰ 59:58 │ 5h –  wk ▰▰▱▱▱ 44% │ opus·medium')
+    expect(core.styleText('gauge', weekOnly())).toBe('E ━━━━━━━━━━━━━◆── F 84% left │ ◷ 59:58 │ 5h – · wk 44% │ opus·medium')
+    expect(core.styleText('compact', weekOnly())).toBe('🧠16% ◷59:58 5h– wk44')
+    expect(core.styleText('line', weekOnly())).toBe('🧠 16% · cache 59:58 · 5h – · wk 44% · opus·medium')
+    const row = core.renderRows('minimal', weekOnly())[0]!
+    expect(row.find(s => s.text === '–')?.color).toBe(undefined)
+  })
+  test('neither figure draws neither item', () => {
+    expect(core.styleText('minimal', view({ rateLimits: [] }))).toBe('🧠 16% │ ◷ 59:58 │ opus·medium')
+  })
+  test('a 5-hour figure with no weekly one draws only the 5-hour item', () => {
+    expect(core.styleText('line', view({ rateLimits: [{ kind: 'five_hour', pct: 95 }] }))).toBe('🧠 16% · cache 59:58 · 5h 95% · opus·medium')
+  })
+  test('the session file still says -1 for the missing figure', () => {
+    const f = core.sessionFile({ ...base, rateLimits: [{ kind: 'seven_day', pct: 44 }] }, { sessionId: 'sid', cwd: '/p', projectDir: '/p' }, NOW)
+    expect(f.rate_limit_5h_pct).toBe(-1)
+    expect(f.rate_limit_7d_pct).toBe(44)
   })
 })

@@ -4,13 +4,20 @@
 // (workflow agents one level down, in `workflows/<wf>/`), append-only, beside an
 // `agent-<id>.meta.json` naming the agent. register.tsx reads the new bytes of each
 // file on a timer and feeds them here; the prompt draws from the stored result.
-import { bar, cellWidth, effortLabel, fmtTokens, plain, shortModel } from './core.ts'
+import { OK, WARN, bar, cellWidth, effortLabel, fmtTokens, plain, shortModel } from './core.ts'
+import { fmtRun } from './children.ts'
 import type { Row, Seg } from './core.ts'
 import type { DrainAgent } from '../types'
 
 /** An agent counts as running, as a guess, while its file changed this recently. */
 export const RUNNING_GUESS_MS = 30_000
 export const MAX_ROWS = 5
+/**
+ * A done row retires once this many rows stand above it, so finished agents do
+ * not fill the screen while others run. A retired agent leaves no row and no
+ * "+N more"; it stays in the total line's done count and its sums.
+ */
+export const DONE_ROWS = 3
 
 /**
  * One transcript's running count. A response is written as one record per content
@@ -116,11 +123,137 @@ export function labelFrom(meta: unknown, id: string): string {
   return id
 }
 
-/** `running` from the engine's own agent list, `running?` guessed from the file's last write, else nothing. */
-export function activity(a: DrainAgent, nowMs: number): 'running' | 'running?' | undefined {
-  if (a.status === 'running' || a.status === 'pending' || a.status === 'waiting') return 'running'
-  if (a.status !== undefined) return undefined
+/** The sidecar's `description`: the few words the Agent call gave, "bg counter". Undefined when it has none. */
+export function detailFrom(meta: unknown): string | undefined {
+  if (typeof meta !== 'object' || meta === null) return undefined
+  const d = (meta as { description?: unknown }).description
+  return typeof d === 'string' && d.trim() ? d.trim() : undefined
+}
+
+/**
+ * A row's label at this level. Two agents of one type read alike
+ * ("general-purpose", "general-purpose": seen live on 6 November), so a row whose
+ * label another shown row shares gets its description after it, as Claude Code's
+ * own panel writes it: "general-purpose bg counter". Narrow levels drop it first.
+ */
+function rowLabel(a: DrainAgent, shared: Set<string>, lv: Level): string {
+  return lv.detail && a.detail && shared.has(a.label) ? `${a.label} ${a.detail}` : a.label
+}
+
+export type Activity = 'running' | 'running?' | 'idle' | 'done' | 'failed' | 'stopped' | 'no transcript'
+
+/** The engine's AgentStatus (2.1.316) in the row's words. Ended is completed, failed or killed. */
+const WORD: Record<string, Activity> = {
+  running: 'running', pending: 'running', waiting: 'running',
+  idle: 'idle', completed: 'done', failed: 'failed', killed: 'stopped',
+  // Ours, not the engine's: a started session announced itself but its transcript is not where this one looks.
+  unseen: 'no transcript',
+}
+
+/**
+ * The row's last word (MC-6748). First the engine's own agent list; then the
+ * agent's meta sidecar, which Claude Code rewrites with `finished: true` when an
+ * ordinary subagent ends (not in the types, so only a second source); then
+ * `running?`, a guess from the file's last write. Nothing when none of them
+ * knows: a workflow agent, which no list names and whose sidecar never says
+ * finished, once its file has been quiet for 30 seconds.
+ */
+export function activity(a: DrainAgent, nowMs: number): Activity | undefined {
+  const word = a.status === undefined ? undefined : WORD[a.status]
+  if (word) return word
+  if (a.finished) return 'done'
   return nowMs - a.mtimeMs <= RUNNING_GUESS_MS ? 'running?' : undefined
+}
+
+/** Still working, as far as anyone knows: these rows sort first. */
+export function live(a: DrainAgent, nowMs: number): boolean {
+  const w = activity(a, nowMs)
+  return w === 'running' || w === 'running?'
+}
+
+/** Claude Code's agent panel keeps a failed or stopped agent's row this long after it ends. */
+export const PANEL_KEEPS_MS = 30_000
+
+/**
+ * Whether Claude Code's own agent panel, under the prompt, lists this agent now
+ * (MC-7035). The panel cannot be hidden and a mod cannot see it, so this follows
+ * its rules (2.1.318): a subagent has a row there while the engine says it is
+ * pending, running, waiting or idle, and for 30 seconds after it failed or was
+ * stopped; a finished one leaves at once. That holds for a subagent Claude waits
+ * for (foreground) too: seen live on 6 November, the panel listed one by name while
+ * it ran, so it is folded like a background one (the duty had assumed it got no
+ * row there). A workflow's agents share one progress line there, so they always
+ * keep a row here, as does a Claude Code process the session started (MC-7061),
+ * which no panel lists. An agent the panel lists is not
+ * drawn twice: it is folded into the total line, by name and size.
+ *
+ * A failed or stopped agent's 30 seconds count from its transcript's last write,
+ * which can be earlier than its end; then its row here appears a little early.
+ */
+export function inPanel(a: DrainAgent, nowMs: number): boolean {
+  if (a.workflow || a.process) return false
+  const s = a.status
+  if (s === 'running' || s === 'pending' || s === 'waiting' || s === 'idle') return true
+  return (s === 'failed' || s === 'killed') && nowMs - a.mtimeMs <= PANEL_KEEPS_MS
+}
+
+/**
+ * A running row's word, bar and count on the total line: the theme's success
+ * green, the gauge's own colour for a context that is fine, with the word bold. A
+ * done row is grey throughout: its word, bar and size faint. Live work catches
+ * the eye; a finished agent wants nothing.
+ */
+export const RUNNING_COLOR = OK
+
+/**
+ * A failed agent's word and count: the theme's warning colour, so it is not
+ * missed now that the panel has let it go (MC-7035). Never red: nothing in the
+ * block asks for action, and red stays the gauge's danger colour.
+ */
+export const FAILED_COLOR = WARN
+
+/** What colour and weight a state's word takes, here and on the total line. Only done is drawn faint. */
+function wordSeg(w: Activity, text: string): Seg {
+  if (w === 'done') return { text, dim: true }
+  if (w === 'failed' || w === 'no transcript') return { text, color: FAILED_COLOR }
+  if (w === 'running') return { text, color: RUNNING_COLOR, bold: true }
+  return { text }
+}
+
+/** The total line's counts that take their word's colour or weight; the others stay faint. */
+const STRONG = new Set<Activity>(['running', 'failed', 'no transcript'])
+
+/** The states the total line counts, in the order it names them. `running?` counts as running. */
+const COUNTED: Activity[] = ['running', 'idle', 'done', 'failed', 'stopped', 'no transcript']
+
+/** An agent's state as the total line counts it. */
+function counted(a: DrainAgent, nowMs: number): Activity | undefined {
+  const w = activity(a, nowMs)
+  return w === 'running?' ? 'running' : w
+}
+
+/**
+ * The total line's opening: how many agents are in each state, "1 running · 2 done".
+ * When some agents have no word (a quiet workflow agent), the count of all agents
+ * follows, so the figures still add up: "1 running · 4 agents".
+ */
+export function stateCounts(agents: DrainAgent[], nowMs: number): string {
+  return stateParts(agents, nowMs).map(p => p.text).join(' · ')
+}
+
+/** stateCounts as its parts, each with the state it counts (none for the count of all agents). */
+export function stateParts(agents: DrainAgent[], nowMs: number): { state?: Activity; text: string }[] {
+  const n: Partial<Record<Activity, number>> = {}
+  let known = 0
+  for (const a of agents) {
+    const w = counted(a, nowMs)
+    if (w === undefined) continue
+    n[w] = (n[w] ?? 0) + 1
+    known++
+  }
+  const parts: { state?: Activity; text: string }[] = COUNTED.filter(w => n[w]).map(w => ({ state: w, text: `${n[w]} ${w}` }))
+  if (known < agents.length) parts.push({ text: `${agents.length} agent${agents.length === 1 ? '' : 's'}` })
+  return parts
 }
 
 function fit(label: string, width: number): string {
@@ -129,55 +262,153 @@ function fit(label: string, width: number): string {
   return `${chars.slice(0, width - 1).join('')}…`
 }
 
-type Level = { cells: number; out: boolean; model: boolean; labelMax: number }
+/** A label cut to `width` characters, not padded. */
+function cut(label: string, width: number): string {
+  return fit(label, width).trimEnd()
+}
+
+/**
+ * The word before an agent's size, so a row such as "226k out 76k" is not left to
+ * guesswork. The size is what the agent's latest request carried, its context: what
+ * it holds while it works, what it held when it stopped.
+ */
+export function sizeVerb(w: Activity | undefined): string {
+  return w === 'running' || w === 'running?' || w === 'idle' ? 'holds' : 'held'
+}
+
+type Level = {
+  cells: number
+  out: boolean
+  model: boolean
+  labelMax: number
+  /** The words that say what each figure is: "holds", "wrote", "tokens processed". */
+  words: boolean
+  /** The total line says how the processed figure counts, and what the bars compare. */
+  explain: boolean
+  /** Agents the panel lists, after their count: every one by name and size (at most PANEL_NAMES), the first only, or none. */
+  panel: 'all' | 'first' | 'none'
+  /** Rows whose label repeats show their description after it, in a label column up to DETAIL_MAX wide. */
+  detail: boolean
+}
+/** The label column's width when it carries descriptions. */
+const DETAIL_MAX = 34
 const LEVELS: Level[] = [
-  { cells: 10, out: true, model: true, labelMax: 18 },
-  { cells: 10, out: false, model: true, labelMax: 18 },
-  { cells: 10, out: false, model: false, labelMax: 18 },
-  { cells: 5, out: false, model: false, labelMax: 12 },
+  { cells: 10, out: true, model: true, labelMax: 18, words: true, explain: true, panel: 'all', detail: true },
+  { cells: 10, out: true, model: true, labelMax: 18, words: true, explain: false, panel: 'all', detail: true },
+  { cells: 10, out: true, model: true, labelMax: 18, words: true, explain: false, panel: 'all', detail: false },
+  { cells: 10, out: true, model: true, labelMax: 18, words: true, explain: false, panel: 'first', detail: false },
+  { cells: 10, out: false, model: true, labelMax: 18, words: true, explain: false, panel: 'first', detail: false },
+  { cells: 10, out: false, model: false, labelMax: 18, words: true, explain: false, panel: 'first', detail: false },
+  { cells: 5, out: false, model: false, labelMax: 12, words: false, explain: false, panel: 'none', detail: false },
 ]
+const PANEL_NAMES = 3
 
 /** An agent's context now; a row stored before the field existed reads 0 until the next refresh. */
 const ctx = (a: DrainAgent): number => a.context ?? 0
 
 /**
- * The rows under the gauge: one per agent (active first, then the most recently
- * written, at most MAX_ROWS), each showing the agent's context now (close to the
- * figure Claude Code reports when the agent finishes, which ran 0.5 to 0.9% higher
- * on 28 October: 156,608 against 155,788) with its bar scaled to the
- * session's largest, then one total line summing every request's tokens.
- * Empty when the session has no agents.
+ * A row's figures, or a dash before its first response has ended: a transcript
+ * gets its first usage record only then. Only a running process the session
+ * started is listed that early (seen live on 6 November: a `claude -p` that
+ * answered in one long response showed nowhere until it ended).
+ */
+const sizeText = (a: DrainAgent): string => (a.requests === 0 ? '–' : fmtTokens(ctx(a)))
+const wroteText = (a: DrainAgent): string => (a.requests === 0 ? '–' : fmtTokens(a.output))
+
+/**
+ * The agents the panel lists in one state, for the total line: "opus-executor holds 226k, Explore 40k".
+ * A label the one before it already gave is not repeated: "opus-executor holds 589k, 418k, 271k, +1".
+ */
+function panelText(list: DrainAgent[], lv: Level, nowMs: number): string {
+  const named = lv.panel === 'all' ? list.slice(0, PANEL_NAMES) : list.slice(0, 1)
+  const one = (a: DrainAgent, i: number) => {
+    const label = i > 0 && named[i - 1]!.label === a.label ? '' : `${cut(a.label, lv.labelMax)} `
+    // Before its first request ends an agent has no size yet: its name alone, or '–' after a repeated one.
+    if (a.requests === 0) return label.trimEnd() || '–'
+    return `${label}${i === 0 ? `${sizeVerb(activity(a, nowMs))} ` : ''}${fmtTokens(ctx(a))}`
+  }
+  const rest = list.length - named.length
+  return [...named.map(one), ...(rest > 0 ? [`+${rest}`] : [])].join(', ')
+}
+
+/**
+ * The rows under the gauge (MC-7035): one per agent Claude Code's agent panel does
+ * not list (finished agents, a workflow's agents, and failed
+ * or stopped ones once the panel let them go), live first, then the most recently
+ * written, at most MAX_ROWS; then one total line. A done row retires once
+ * DONE_ROWS rows stand above it: it is counted on the total line, not drawn. An agent the panel lists gets no
+ * row: its name and size go on the total line beside its state's count.
+ *
+ * A row's size is the agent's context, its latest request's input + cache write +
+ * cache read + output (close to the figure Claude Code reports when the agent
+ * finishes, 0.5 to 0.9% under it on 28 October); "wrote" is all its output. The
+ * total line's processed figure sums every request, so each re-read counts again.
+ * The bar compares the rows' sizes, so with a single row there is none: alone, it
+ * would only ever look full. Empty when the session has no agents.
  */
 export function agentRows(agents: DrainAgent[], nowMs: number, cols?: number): Row[] {
   if (agents.length === 0) return []
-  const max = Math.max(1, ...agents.map(ctx))
-  const ranked = [...agents].sort((a, b) => {
-    const act = Number(activity(b, nowMs) !== undefined) - Number(activity(a, nowMs) !== undefined)
+  const folded = agents.filter(a => inPanel(a, nowMs)).sort((a, b) => ctx(b) - ctx(a))
+  const own = agents.filter(a => !inPanel(a, nowMs))
+  const ranked = [...own].sort((a, b) => {
+    const act = Number(live(b, nowMs)) - Number(live(a, nowMs))
     return act !== 0 ? act : b.mtimeMs - a.mtimeMs
   })
-  const shown = ranked.slice(0, MAX_ROWS)
+  // Live rows first, then the rest by last write; a done row only while fewer than DONE_ROWS stand above it.
+  const shown: DrainAgent[] = []
+  let more = 0
+  for (const a of ranked) {
+    if (activity(a, nowMs) === 'done' && shown.length >= DONE_ROWS) continue
+    if (shown.length < MAX_ROWS) shown.push(a)
+    else more++
+  }
+  const withBar = shown.length >= 2
+  const max = Math.max(1, ...shown.map(ctx))
   const total = agents.reduce((n, a) => n + a.tokens, 0)
   const output = agents.reduce((n, a) => n + a.output, 0)
-  const more = agents.length - shown.length
+  // While no row has a figure yet (a process before its first answer ends), the sums are unknown, not zero.
+  const known = agents.some(a => a.requests > 0)
+  const counts = stateParts(agents, nowMs)
+
+  const seen = new Set<string>()
+  const shared = new Set<string>()
+  for (const a of shown) (seen.has(a.label) ? shared : seen).add(a.label)
 
   const build = (lv: Level): Row[] => {
-    const width = Math.min(lv.labelMax, Math.max(...shown.map(a => [...a.label].length)))
-    const tokW = Math.max(...shown.map(a => fmtTokens(ctx(a)).length))
-    const outW = Math.max(...shown.map(a => fmtTokens(a.output).length))
-    const rows: Row[] = shown.map(a => {
-      const row: Row = [{ text: `  ${fit(a.label, width)} `, dim: true }, ...bar(ctx(a) / max, lv.cells, undefined)]
-      row.push({ text: ` ${fmtTokens(ctx(a)).padStart(tokW)}` })
-      if (lv.out) row.push({ text: `  out ${fmtTokens(a.output).padEnd(outW)}`, dim: true })
+    const labels = shown.map(a => rowLabel(a, shared, lv))
+    const labelCap = lv.detail && shared.size > 0 ? Math.max(lv.labelMax, DETAIL_MAX) : lv.labelMax
+    const width = Math.min(labelCap, Math.max(0, ...labels.map(l => [...l].length)))
+    const tokW = Math.max(0, ...shown.map(a => sizeText(a).length))
+    const outW = Math.max(0, ...shown.map(a => wroteText(a).length))
+    const rows: Row[] = shown.map((a, i) => {
+      const act = activity(a, nowMs)
+      const row: Row = [{ text: `  ${fit(labels[i]!, width)} `, dim: true }]
+      const done = act === 'done'
+      const cells = bar(ctx(a) / max, lv.cells, act === 'running' ? RUNNING_COLOR : undefined)
+      if (withBar) row.push(...(done ? cells.map(c => ({ ...c, dim: true })) : cells), { text: ' ' })
+      if (lv.words) row.push({ text: `${sizeVerb(act).padEnd(5)} `, dim: true })
+      row.push(done ? { text: sizeText(a).padStart(tokW), dim: true } : { text: sizeText(a).padStart(tokW) })
+      if (lv.out) row.push({ text: `  wrote ${wroteText(a).padEnd(outW)}`, dim: true })
       const model = shortModel(a.model)
       const effort = effortLabel(a.effort)
       if (lv.model && model) row.push({ text: `  ${effort ? `${model}·${effort}` : model}`, dim: true })
-      const act = activity(a, nowMs)
-      if (act) row.push({ text: `  ${act}` })
+      if (act) row.push({ text: '  ' }, wordSeg(act, act))
+      // A process the session started says how long it ran (MC-7061).
+      if (a.runS !== undefined) row.push({ text: ` ${fmtRun(a.runS)}`, dim: true })
       return row
     })
-    const sum: Seg[] = [{ text: `  ${agents.length} agent${agents.length === 1 ? '' : 's'} · ${fmtTokens(total)} tokens processed`, dim: true }]
-    if (lv.out) sum.push({ text: ` · ${fmtTokens(output)} out`, dim: true })
+    // A running or failed count takes its row word's colour or weight; the rest of the line stays faint.
+    const sum: Seg[] = [{ text: '  ', dim: true }]
+    counts.forEach((p, i) => {
+      if (i > 0) sum.push({ text: ' · ', dim: true })
+      sum.push(p.state && STRONG.has(p.state) ? wordSeg(p.state, p.text) : { text: p.text, dim: true })
+      const inP = p.state === undefined ? [] : folded.filter(a => counted(a, nowMs) === p.state)
+      if (inP.length > 0 && lv.panel !== 'none') sum.push({ text: ` (${panelText(inP, lv, nowMs)})`, dim: true })
+    })
+    sum.push({ text: ` · ${known ? fmtTokens(total) : '–'} ${lv.words ? 'tokens processed' : 'processed'}${lv.explain ? ', each re-read counted' : ''}`, dim: true })
+    if (lv.out) sum.push({ text: ` · ${known ? fmtTokens(output) : '–'} written`, dim: true })
     if (more > 0) sum.push({ text: ` · +${more} more`, dim: true })
+    if (withBar && lv.explain) sum.push({ text: ' · bars against the largest', dim: true })
     rows.push(sum)
     return rows
   }

@@ -4,7 +4,7 @@ import { start, world } from './world.ts'
 
 const BAND = (cols = 120) => ({
   plugin: 'brain-drain', component: 'AbovePrompt' as const,
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: cols, scroll: { bodyRows: 9 } as never, view: {} as never },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: cols, scroll: { bodyRows: 9 } as never, view: {} as never },
 })
 
 async function setup($: any, on: any) {
@@ -102,13 +102,34 @@ test('the expiry alert fires once, 60 s ahead, only while idle', async ($, on) =
 
 test('by default the gauge draws under the prompt and keeps the engine hint line', async ($, on) => {
   await setup($, on)
-  for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface,
+  const ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface: 'terminal',
+    props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
+  const r = await rows(ui as never)
+  expect(r.gauge).toContain('31%')
+  expect(r.all.join(' ')).toContain('other mod')
+})
+
+// The Claude desktop app raises the band and no hint line (2.1.321, MC-7763):
+// there the band is the gauge's place whatever `place` says, and never twice.
+test('on the desktop the gauge draws in the band, by default too, and not under the prompt', async ($, on) => {
+  await setup($, on)
+  for (const place of ['below', 'above']) {
+    await $.command.run({ command: 'drain', args: `place ${place}`, origin: { kind: 'composer' } as never, presentation: {} as never })
+    let ui = await $.ui.mount({ ...BAND(), surface: 'desktop' })
+    expect((await rows(ui)).gauge).toContain('31%')
+    expect((await rows(ui)).all).toContain('other mod')
+    await ui.unmount()
+    ui = await $.ui.mount({ plugin: 'brain-drain', component: 'PromptHint', surface: 'desktop',
       props: { isDraft: false, isWorking: false, hint: '? for shortcuts' } } as never)
-    const r = await rows(ui as never)
-    expect(r.gauge).toContain('31%')
-    expect(r.all.join(' ')).toContain('other mod')
+    expect((await rows(ui as never)).gauge).toBeUndefined()
+    expect((await rows(ui as never)).all).toContain('other mod')
+    await ui.unmount()
   }
+  // The terminal keeps the default: nothing in the band.
+  await $.command.run({ command: 'drain', args: 'place below', origin: { kind: 'composer' } as never, presentation: {} as never })
+  const ui = await $.ui.mount({ ...BAND(), surface: 'terminal' })
+  expect((await rows(ui)).gauge).toBeUndefined()
+  await ui.unmount()
 })
 
 // S3: under the prompt the row narrows to the terminal's width, as the band above it does.
