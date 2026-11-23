@@ -801,3 +801,32 @@ export const HELP = [
   '                      BRAIN_DRAIN_NOTIFY in the environment overrides these for one run (see the README)',
   '/drain help           this list',
 ]
+
+/**
+ * Every surface the session draws on: what `surfaces` answers (`$.session.surfaces()`)
+ * where this Claude Code has it (MC-8315 item 6: no public source says which version
+ * brought it in). Where the call fails, as calling a method a version lacks does, the
+ * deprecated `surface`'s one answer; where that fails too, what `surfaces()` documents
+ * for the two plain cases: `terminal` under an interactive session's prompt, nothing in
+ * a `-p` run. So a terminal session still writes its agents' rows, and a `-p` run, or a
+ * panel session not yet known as one, never becomes a writer by the guess. The calls
+ * come as functions because a hooks module spells `$.session.surfaces()` where it calls it.
+ */
+export async function surfacesOf(
+  surfaces: () => Promise<readonly string[]>,
+  surface: () => Promise<string | null>,
+  interactive: boolean,
+): Promise<readonly string[]> {
+  try {
+    return await surfaces()
+  } catch {
+    // Missing or failing: try the older call.
+  }
+  try {
+    const one = await surface()
+    return one ? [one] : []
+  } catch {
+    // Neither here: answer as the documented plain cases.
+  }
+  return interactive ? ['terminal'] : []
+}

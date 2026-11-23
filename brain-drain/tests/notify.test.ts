@@ -4,6 +4,10 @@ import * as notify from '../hooks/notify.ts'
 import { HOME, SID, sessionFile, settle, start, world } from './world.ts'
 import type { WorldOptions } from './world.ts'
 
+// These push the clock through many simulated minutes, a second of tick at a time: about 1 to 3 s
+// alone, and past the kit's 5 s default when the machine is busy (MC-8315).
+const SLOW = { timeoutMs: 20_000 }
+
 const NOW = Date.UTC(2026, 9, 3, 12, 0, 0)
 const iso = (ms: number) => new Date(ms).toISOString()
 // Four days to the weekly reset: three days gone, so the pace line is 3/7 x 100 + 5 = 47.9%.
@@ -529,7 +533,7 @@ test('a compaction is told though the context after it is below every stage', as
   expect(await toolCall($)).toHaveLength(0)
 })
 
-test('the facts are told again 30 minutes after the last note, not sooner; any note restarts the wait', async ($, on) => {
+test('the facts are told again 30 minutes after the last note, not sooner; any note restarts the wait', SLOW, async ($, on) => {
   const w = await setup($, on)
   expect(await submit($)).toHaveLength(1)
   await w.clock.advance(29 * 60_000)
@@ -548,7 +552,7 @@ test('the facts are told again 30 minutes after the last note, not sooner; any n
   expect(await submit($)).toHaveLength(1)
 })
 
-test('refresh 0 turns the timed refresh off; /drain notify refresh sets it', async ($, on) => {
+test('refresh 0 turns the timed refresh off; /drain notify refresh sets it', SLOW, async ($, on) => {
   const w = await setup($, on, { env: { BRAIN_DRAIN_NOTIFY: '{"context":[70,90],"refresh":0}' } })
   expect(await submit($)).toHaveLength(1)
   await w.clock.advance(31 * 60_000)

@@ -1,3 +1,4 @@
+import type { AgentInfo, AgentStatus } from 'claude-code'
 import { describe, expect, test } from 'claude-code/testing'
 import * as agentBars from '../hooks/agents.ts'
 import { cellWidth, plain } from '../hooks/core.ts'
@@ -15,6 +16,12 @@ function rec(msg: string, block: number, cacheWrite: number, cacheRead: number, 
 }
 const USER = JSON.stringify({ type: 'user', message: { role: 'user', content: 'go' } })
 const lines = (...l: string[]) => l.map(x => `${x}\n`).join('')
+// One entry of `$.agent.list()`, whole: the fields the mod reads, the rest at plain defaults.
+const listed = (id: string, description: string, type: string, status: AgentStatus): AgentInfo => ({
+  id, description, type, status, kind: 'local_agent',
+  taskStatus: status === 'completed' ? 'completed' : 'running',
+  label: description, startTime: 0, cwd: '/work', tokenCount: 0, tokenSamples: [], hasRow: false,
+})
 
 describe('counting', () => {
   test('a response written as several blocks counts once, and its last block\'s output wins', () => {
@@ -354,9 +361,10 @@ async function ourRows(ui: { findAll: (q: { type: string }) => Promise<{ text: s
   return (await ui.findAll({ type: 'Text' })).filter(t => t.props.wrap === 'truncate-end').map(t => t.text)
 }
 
-async function boot($: any, on: any, store?: Record<string, unknown>) {
+async function boot($: any, on: any, store?: Record<string, unknown>, o: { surfacesMissing?: boolean; interactive?: boolean } = {}) {
   const w = world(on, {
     ...(store ? { store } : {}),
+    ...(o.surfacesMissing ? { surfacesMissing: true } : {}),
     context: { tokens: 312000, window: 1000000, percent: 31 },
     files: {
       [transcript()]: lines(USER),
@@ -368,7 +376,7 @@ async function boot($: any, on: any, store?: Record<string, unknown>) {
   })
   for (const k of w.files.keys()) w.mtimes.set(k, w.clock.now() - 600_000)
   on('ui.render', ($2: any, e: any) => { const { Text } = $2.ui.resolve(e); return <Text key="engine">engine hint</Text> })
-  await start($)
+  await start($, o.interactive ?? true)
   return w
 }
 
@@ -452,9 +460,33 @@ test('a line longer than one read is passed over, not stalled on', async ($, on)
   await ui.unmount()
 })
 
+// MC-8315 item 6: a Claude Code without `$.session.surfaces()` answers as the method documents
+// for the plain cases: a terminal under an interactive prompt, nothing in a -p run.
+describe('without $.session.surfaces()', () => {
+  const named = async ($: any) => {
+    await $.command.run(cmd('agents on'))
+    const ui = await $.ui.mount(HINT as never)
+    const rows = await ourRows(ui as never)
+    await ui.unmount()
+    return rows.some(r => r.includes('exec-hooks'))
+  }
+  test('an interactive session still draws its agents', async ($, on) => {
+    await boot($, on, undefined, { surfacesMissing: true })
+    expect(await named($)).toBe(true)
+  })
+  test('a session not interactive draws none, though one with a surface does', async ($, on) => {
+    await boot($, on, undefined, { surfacesMissing: true, interactive: false })
+    expect(await named($)).toBe(false)
+  })
+  test('the same session with a terminal surface draws them', async ($, on) => {
+    await boot($, on, undefined, { interactive: false })
+    expect(await named($)).toBe(true)
+  })
+})
+
 // MC-7035: a running background agent is in Claude Code's own panel, so it gets no row here.
 test('an agent the engine lists as running folds into the total line; the workflow agent keeps its row', async ($, on) => {
-  on('agent.list', () => ({ value: [{ id: 'aexec-1', description: 'hooks', type: 'opus-executor', status: 'running' }] }))
+  on('agent.list', () => ({ value: [listed('aexec-1', 'hooks', 'opus-executor', 'running')] }))
   await boot($, on)
   await $.command.run(cmd('agents on'))
   const ui = await $.ui.mount(HINT as never)
@@ -466,7 +498,7 @@ test('an agent the engine lists as running folds into the total line; the workfl
 })
 
 test('a foreground agent the engine lists as running is folded into the total line, as the panel lists it (seen live, 6 November)', async ($, on) => {
-  on('agent.list', () => ({ value: [{ id: 'aexec-1', description: 'hooks', type: 'opus-executor', status: 'running' }] }))
+  on('agent.list', () => ({ value: [listed('aexec-1', 'hooks', 'opus-executor', 'running')] }))
   const w = await boot($, on)
   w.files.set(`${DIR}/agent-aexec-1.meta.json`, JSON.stringify({ name: 'exec-hooks', agentType: 'opus-executor', requestShape: 'foreground' }))
   await $.command.run(cmd('agents on'))
@@ -479,7 +511,7 @@ test('a foreground agent the engine lists as running is folded into the total li
 
 // Seen live on 14 Nov: an agent writing one long reply ran 53 s and was never counted as running.
 test('an agent the engine lists as running is counted before its first request ends, by name alone', async ($, on) => {
-  on('agent.list', () => ({ value: [{ id: 'anew-3', description: 'story', type: 'general-purpose', status: 'running' }] }))
+  on('agent.list', () => ({ value: [listed('anew-3', 'story', 'general-purpose', 'running')] }))
   const w = await boot($, on)
   w.files.set(`${DIR}/agent-anew-3.jsonl`, lines(USER))
   w.files.set(`${DIR}/agent-anew-3.meta.json`, JSON.stringify({ name: 'story-writer', agentType: 'general-purpose' }))
@@ -493,7 +525,7 @@ test('an agent the engine lists as running is counted before its first request e
 })
 
 test('an agent with no finished request and no live status is still left out', async ($, on) => {
-  on('agent.list', () => ({ value: [{ id: 'anew-3', description: 'story', type: 'general-purpose', status: 'completed' }] }))
+  on('agent.list', () => ({ value: [listed('anew-3', 'story', 'general-purpose', 'completed')] }))
   const w = await boot($, on)
   w.files.set(`${DIR}/agent-anew-3.jsonl`, lines(USER))
   await $.command.run(cmd('agents on'))
@@ -511,7 +543,7 @@ test('a panel agent with no size yet is named without one after those that have 
 })
 
 test('an agent the engine lists as completed reads done', async ($, on) => {
-  on('agent.list', () => ({ value: [{ id: 'aexec-1', description: 'hooks', type: 'opus-executor', status: 'completed' }] }))
+  on('agent.list', () => ({ value: [listed('aexec-1', 'hooks', 'opus-executor', 'completed')] }))
   await boot($, on)
   await $.command.run(cmd('agents on'))
   const ui = await $.ui.mount(HINT as never)

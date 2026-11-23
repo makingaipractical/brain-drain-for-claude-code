@@ -71,6 +71,12 @@ async function getMeta($: $): Promise<DrainMeta> {
   return (await read($, meta)) ?? {}
 }
 
+/** `$.session.surfaces()`, with a fallback where this Claude Code lacks it (core.ts). */
+async function sessionSurfaces($: $): Promise<readonly string[]> {
+  const interactive = (await getMeta($)).interactive === true
+  return core.surfacesOf(() => $.session.surfaces(), () => $.session.surface(), interactive)
+}
+
 async function patchMeta($: $, change: Partial<DrainMeta>): Promise<void> {
   await update($, meta, m => ({ ...(m ?? {}), ...change }))
 }
@@ -375,7 +381,7 @@ async function refreshTtl($: $): Promise<void> {
   const path = m.transcriptPath
   if (!path || !m.outDir) return
   // Headless with nothing drawing: the TTL would show nowhere, so spawn nothing for it.
-  if (!m.interactive && (await $.session.surfaces()).length === 0) return
+  if (!m.interactive && (await sessionSurfaces($)).length === 0) return
   let size = 0
   try {
     size = (await $.fs.stat(path)).size
@@ -499,7 +505,7 @@ async function refreshAgents($: $): Promise<void> {
     await clearAgents($)
     agentDir = dir
   }
-  if (!dir || (await $.session.surfaces()).length === 0) return
+  if (!dir || (await sessionSurfaces($)).length === 0) return
   const files = await agentFiles($, dir)
   const status = new Map<string, string>()
   try {
@@ -621,7 +627,14 @@ async function announceChild($: $, home: string | undefined, interactive: boolea
   } catch {
     // no pid: the parent falls back to the transcript's last write
   }
-  const rec: children.ChildRecord = { v: 1, parent, session: own, startedAt: await $.clock.now(), root, cwd, interactive, ...(pid ? { pid } : {}) }
+  let configDir = children.safeConfigDir(await $.env.get('CLAUDE_CONFIG_DIR'))
+  // A configuration folder the legal rule refuses is left out of the record, so
+  // the parent never opens anything there and its path is not written down.
+  if (configDir && await isLegal($, [configDir], home)) configDir = undefined
+  const rec: children.ChildRecord = {
+    v: 1, parent, session: own, startedAt: await $.clock.now(), root, cwd, interactive,
+    ...(pid ? { pid } : {}), ...(configDir ? { configDir } : {}),
+  }
   const dir = `${home}/.claude/${children.CHILDREN_DIR}`
   await $.process.run(['mkdir', '-p', dir], { timeoutMs: 5000 })
   await writeAtomic($, `${dir}/${own}.json`, JSON.stringify(rec))
@@ -649,11 +662,14 @@ async function pruneChildren($: $, home: string | undefined): Promise<void> {
 }
 
 /** Whether the child's process still runs as that session, from Claude Code's own record of it; its user-given name too. */
-async function childAlive($: $, home: string, pid: number, session: string): Promise<{ alive: boolean; name?: string }> {
-  // Only `<pid>.json`; the `.key` file beside it is never opened.
-  const s = (await readJson($, `${home}/.claude/sessions/${pid}.json`)) as { sessionId?: unknown; name?: unknown; nameSource?: unknown } | undefined
-  if (!s || s.sessionId !== session) return { alive: false }
-  return { alive: true, ...(s.nameSource === 'user' && typeof s.name === 'string' ? { name: s.name } : {}) }
+async function childAlive($: $, home: string, pid: number, rec: children.ChildRecord): Promise<{ alive: boolean; name?: string }> {
+  // Only `<pid>.json`, under the child's configuration folder first; the `.key` file beside it is never opened.
+  for (const path of children.processRecordPaths(home, rec, pid)) {
+    const s = (await readJson($, path)) as { sessionId?: unknown; name?: unknown; nameSource?: unknown } | undefined
+    if (!s || s.sessionId !== rec.session) continue
+    return { alive: true, ...(s.nameSource === 'user' && typeof s.name === 'string' ? { name: s.name } : {}) }
+  }
+  return { alive: false }
 }
 
 /**
@@ -721,7 +737,7 @@ async function childAgents($: $, m: DrainMeta, list: DrainAgent[]): Promise<void
       continue
     }
     if (c.endedMs === undefined && c.rec.pid !== undefined) {
-      const live = await childAlive($, m.home, c.rec.pid, c.rec.session)
+      const live = await childAlive($, m.home, c.rec.pid, c.rec)
       if (live.name) c.name = live.name
       if (!live.alive) c.endedMs = Math.max(st.mtimeMs, c.rec.startedAt)
     }
@@ -1278,7 +1294,7 @@ async function ensureSeeded($: $): Promise<void> {
  * environment, stays silent.
  */
 async function isPanel($: $): Promise<boolean> {
-  const surfaces = await $.session.surfaces()
+  const surfaces = await sessionSurfaces($)
   if (surfaces.includes('vscode')) return true
   return surfaces.length > 0 && (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'claude-vscode'
 }
@@ -1290,7 +1306,7 @@ async function isPanel($: $): Promise<boolean> {
  * way as the panel, so a `-p` run started from inside it stays silent.
  */
 async function isDesktopApp($: $): Promise<boolean> {
-  const surfaces = await $.session.surfaces()
+  const surfaces = await sessionSurfaces($)
   if (surfaces.includes('desktop') && !surfaces.includes('vscode')) return true
   return surfaces.length > 0 && (await $.env.get('CLAUDE_CODE_ENTRYPOINT')) === 'claude-desktop'
 }

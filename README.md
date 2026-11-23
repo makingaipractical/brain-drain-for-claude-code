@@ -12,7 +12,8 @@ what you type. It adds two things to what Claude reads: the name and description
 knows how full its own context is. The note comes when the context passes set levels, and also at
 a session's first prompt or tool call, after a compaction, when the 5-hour window starts again, when
 the account changes, and every 30 minutes by default. It names the account the figures belong to:
-the login's email, or a short label you chose (below). The first time Brain Drain starts
+the login's email or a short label you chose (below), else the start of the account's id, or
+`account not certain` when it is not known. The first time Brain Drain starts
 in an interactive session, it asks whether to turn that note on, and the default it offers is on,
 at 20, 30, 35 and 50%; `/drain notify off` stops it at any time. To check
 this yourself before installing, clone the repository and run `claude plugin validate ./brain-drain`:
@@ -77,6 +78,9 @@ the new window: `5-hour window reset at 18:20, no new figure yet`.
 The account is the email of the session's login, or `account` and the first 8 characters of its
 id when only that is known. It reads `account not certain` when Brain Drain found no login record,
 or when the login changed while the session ran; the figures are still the session's own.
+Because the note is part of the conversation, the email it names is written into the session's
+transcript with it. A short name in `labels.json` (below) stands in for
+it, and `/drain notify refresh off` stops the timed note.
 
 - **A short name for the account (optional).** If `~/.claude/fuel-gauge-mod/labels.json` exists,
   the note uses the name it gives the session's account instead of the email, for example
@@ -135,8 +139,9 @@ BRAIN_DRAIN_NOTIFY='{"context":[30,35],"5h":[80],"text":{"context:35":"stop and 
 
 ## Install
 
-Requires Claude Code v2.1.287 or later (the first version with mods). Tested with v2.1.327 on
-macOS, and with v2.1.301 on Linux (Ubuntu 24.04, arm64, in a dev container). Windows untested.
+Requires Claude Code v2.1.287 or later (the first version with mods). This version is tested with
+v2.1.327 on macOS; older versions of Claude Code are not tested with it. Version 0.2 also ran with
+v2.1.301 on Linux (Ubuntu 24.04, arm64, in a dev container). Windows untested.
 
 ```
 claude plugin marketplace add makingaipractical/brain-drain-for-claude-code
@@ -203,7 +208,8 @@ The two work side by side. The extension's status line bridge writes `~/.claude/
 and while it is connected the mod writes its own copy to `~/.claude/fuel-gauge-mod/` instead, so
 neither overwrites the other. If the bridge is not your status line, the mod writes
 `~/.claude/fuel-gauge/` itself. A `claude -p` run writes its file to
-`~/.claude/fuel-gauge-mod/headless/` once its first figures are in, and never to either folder
+`~/.claude/fuel-gauge-mod/headless/` once its first 5-hour or weekly figure is in (a run that reports
+neither writes none), and never to either folder
 above, so the extension never draws one. From extension
 v0.9.3, while the mod has written a session file in the last 36 hours, the extension does not ask
 for Claude Code's status line, so you can keep your own.
@@ -212,18 +218,20 @@ for Claude Code's status line, so you can keep your own.
 
 - Reads: Claude Code's own figures and settings (to see whether the VS Code extension's bridge is
   connected), the end of the current session's transcript (for the exact cache TTL; with agent
-  rows on, the default, also the subagent transcripts beside it), `account_ttl.json`,
+  rows on, the default, also the subagent transcripts beside it and the `agent-<id>.meta.json` file
+  beside each, which names the agent), `account_ttl.json`,
   `~/.claude/fuel-gauge-mod/labels.json` if you made one (above), and which account the session
   runs on: the `CLAUDE_CODE_ACCOUNT_UUID` and `CLAUDE_CODE_USER_EMAIL` variables a host such as
   the Desktop app sets, else the account named in the configuration folder's `.claude.json` (its
   identity only; the login itself is never read).
-- With agent rows on, it also reads the records in `~/.claude/fuel-gauge/children/` that name the
-  current session, the transcripts of the sessions they announce, and, for a record that gives a
-  process id, Claude Code's own record of that process, `~/.claude/sessions/<pid>.json` (never the
-  `.key` file beside it).
+- With agent rows on, it also lists `~/.claude/fuel-gauge/children/` and reads each record there
+  once, keeping those that name the current session; then the transcripts of the sessions they
+  announce, and, for a record that gives a process id, Claude Code's own record of that process, `sessions/<pid>.json` under the
+  configuration folder the record names, else under `~/.claude` (never the `.key` file beside it).
 - In a session another session started, and for each new record a parent reads, it lists the
   names in each folder from the session's root and working folder upward (your home folder and
-  the folders above it left out) to look for a `.legal` marker. It opens no file there. A folder on a drive under
+  the folders above it left out) to look for a `.legal` marker; a started session does the same
+  from its `CLAUDE_CONFIG_DIR`, when one is set. It opens no file there. A folder on a drive under
   `/Volumes` (macOS) counts as marked and is not listed.
 - Writes: one file per session and `account_ttl.json`, in the folder described above, plus its
   own saved data in Claude Code's plugin storage. Each session file names the account its 5-hour
@@ -232,17 +240,22 @@ for Claude Code's status line, so you can keep your own.
 - A session that another session started (it inherited `CLAUDE_CODE_SESSION_ID`, or a launcher set
   `BRAIN_DRAIN_PARENT`) also writes one record, `~/.claude/fuel-gauge/children/<session>.json`,
   once at its start. The record holds both session ids, its process id, its start time, its root
-  and working folder, and whether it is interactive. It is written whatever the agents setting, in
+  and working folder, whether it is interactive, and its `CLAUDE_CONFIG_DIR` if one is set and
+  the same rule clears it (otherwise that one field is left out). It is written whatever the agents setting, in
   `claude -p` runs too, and also while the bridge is connected. It is never written for a folder
   under a `.legal` marker, on a drive under `/Volumes` (macOS), or not cleared by your legal check.
-- Removes: its own session files older than 36 hours from `~/.claude/fuel-gauge-mod/`, those of
+- Removes: any `.json` file older than 36 hours from `~/.claude/fuel-gauge-mod/` except
+  `account_ttl.json`, `config.json` and `labels.json` (in practice its own session files), those of
   `claude -p` runs older than 6 hours from its `headless/` folder, records in
   `~/.claude/fuel-gauge/children/` older than 36 hours (at every session start, whatever the agents
   setting), and leftover temp files.
 - Runs `tail`, `mv` and `rm` on those files only, `mkdir` for its folders, `sh -c 'echo $PPID'`
   once in a session another session started (to name its process for that session's agent row),
-  a check program at `~/.claude/fuel-gauge/legal-check` only if you placed one there, and plays a
-  bundled chime if you turn sound on. Nothing else.
+  a check program at `~/.claude/fuel-gauge/legal-check` only if you placed one there (given the
+  folders as arguments, at the start of every session another session started (once more with its
+  `CLAUDE_CONFIG_DIR`, when set) and for each new
+  record a parent reads; they count as cleared only when it exits 0 and prints one `open` line
+  for each), and plays a bundled chime if you turn sound on. Nothing else.
 
 To remove it: `claude plugin uninstall brain-drain@brain-drain`. Uninstalling leaves the session
 files in `~/.claude/fuel-gauge-mod/` and the records in `~/.claude/fuel-gauge/children/`; delete

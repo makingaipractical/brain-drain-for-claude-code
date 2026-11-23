@@ -23,9 +23,50 @@ describe('children, pure', () => {
     expect(children.parseRecord({ ...rec, parent: 7 })).toBeUndefined()
   })
 
+  test('a record keeps the child\'s configuration folder only as a plain absolute path (MC-8313)', () => {
+    const rec = { v: 1, parent: PARENT, session: CHILD, startedAt: 5, root: '/a', cwd: '/a', interactive: false, pid: 4242 }
+    expect(children.parseRecord({ ...rec, configDir: '/alt/.claude-other/' })?.configDir).toBe('/alt/.claude-other')
+    expect(children.parseRecord({ ...rec, configDir: 'relative/dir' })?.configDir).toBeUndefined()
+    expect(children.parseRecord({ ...rec, configDir: '/alt/../etc' })?.configDir).toBeUndefined()
+    expect(children.parseRecord({ ...rec, configDir: '/alt\nx' })?.configDir).toBeUndefined()
+    expect(children.parseRecord({ ...rec, configDir: '/' })?.configDir).toBeUndefined()
+  })
+
+  test('the process record is looked for under the child\'s configuration folder first, then the home folder', () => {
+    expect(children.processRecordPaths('/h', {}, 77)).toEqual(['/h/.claude/sessions/77.json'])
+    expect(children.processRecordPaths('/h', { configDir: '/alt/c' }, 77)).toEqual(['/alt/c/sessions/77.json', '/h/.claude/sessions/77.json'])
+    expect(children.processRecordPaths('/h', { configDir: '/h/.claude' }, 77)).toEqual(['/h/.claude/sessions/77.json'])
+    // A configuration folder on a mounted volume is never opened (the legal rule).
+    expect(children.processRecordPaths('/h', { configDir: '/Volumes/Disk/c' }, 77)).toEqual(['/h/.claude/sessions/77.json'])
+    // In other spellings too: letter case, doubled slashes, `.` parts.
+    for (const spelled of ['/volumes/Disk/c', '//Volumes/Disk/c', '/./Volumes/Disk/c', '/VOLUMES//Disk/./c/']) {
+      const rec = children.parseRecord({ v: 1, parent: 'p', session: 's', startedAt: 1, root: '/r', cwd: '/r', configDir: spelled })
+      expect(children.processRecordPaths('/h', rec!, 77)).toEqual(['/h/.claude/sessions/77.json'])
+      expect(children.processRecordPaths('/h', { configDir: spelled }, 77)).toEqual(['/h/.claude/sessions/77.json'])
+    }
+    expect(children.parseRecord({ v: 1, parent: 'p', session: 's', startedAt: 1, root: '/r', cwd: '/r', configDir: '//alt/./c/' })?.configDir).toBe('/alt/c')
+  })
+
   test('the legal rule: any mounted volume is refused; a marker is looked for up to the home folder', () => {
     expect(children.onVolume('/Volumes/Anything/x')).toBe(true)
     expect(children.onVolume('/Users/me/x')).toBe(false)
+    expect(children.onVolume('/volumes/Anything')).toBe(true)
+    expect(children.onVolume('//Volumes')).toBe(true)
+    expect(children.onVolume('/./Volumes/x')).toBe(true)
+    expect(children.onVolume('/VolumesX/x')).toBe(false)
+    expect(children.onVolume('/System/Volumes/Data/Volumes/Disk')).toBe(true)
+    expect(children.onVolume('/system/volumes/data/volumes')).toBe(true)
+    expect(children.onVolume('/System/Volumes/Data/Users/me')).toBe(false)
+    expect(children.onVolume('/work/../Volumes/Disk')).toBe(true)
+    // A path that passes through a drive counts, wherever it ends: the folders above it are listed.
+    expect(children.onVolume('/Volumes/../work')).toBe(true)
+    expect(children.onVolume('/Volumes/D/../../work')).toBe(true)
+    expect(children.onVolume('/a/../Volumes/D/../../work')).toBe(true)
+    expect(children.onVolume('/work/a/../b')).toBe(false)
+    expect(children.onVolume('/')).toBe(false)
+    expect(children.onVolume('')).toBe(false)
+    expect(children.plainPath('/a//b/./c/')).toBe('/a/b/c')
+    expect(children.plainPath('/')).toBe('/')
     expect(children.ancestors('/h/a/b', '/h')).toEqual(['/h/a/b', '/h/a'])
     expect(children.ancestors('/work/proj', '/h')).toEqual(['/work/proj', '/work'])
   })
@@ -47,7 +88,7 @@ describe('children, pure', () => {
     ])
     expect(children.childLabel(rec, undefined)).toBe('claude -p')
     expect(children.childLabel({ ...rec, interactive: true }, undefined)).toBe('claude')
-    expect(children.childLabel(rec, 'modtest')).toBe('modtest')
+    expect(children.childLabel(rec, 'helper-run')).toBe('helper-run')
     expect([45, 720, 3900].map(children.fmtRun)).toEqual(['45s', '12m', '1h05'])
   })
 })
@@ -68,6 +109,43 @@ test('a session started from another session\'s Bash call writes one record nami
   await start($)
   const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
   expect(rec).toMatchObject({ v: 1, parent: PARENT, session: SID, pid: 4242, root: ROOT, cwd: ROOT })
+})
+
+test('a started session under CLAUDE_CONFIG_DIR names that folder in its record (MC-8313)', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_CODE_SESSION_ID: PARENT, CLAUDE_CONFIG_DIR: '/alt/.claude-other/' } })
+  await start($)
+  const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
+  expect(rec.configDir).toBe('/alt/.claude-other')
+})
+
+test('a configuration folder on a mounted drive is left out of the record', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_CODE_SESSION_ID: PARENT, CLAUDE_CONFIG_DIR: '/volumes/Disk/.claude' } })
+  await start($)
+  const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
+  expect(rec.parent).toBe(PARENT)
+  expect('configDir' in rec).toBe(false)
+})
+
+test('a configuration folder under a .legal marker is left out of the record', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_CODE_SESSION_ID: PARENT, CLAUDE_CONFIG_DIR: '/vault/case/.claude' }, files: { '/vault/.legal': '' } })
+  await start($)
+  const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
+  expect('configDir' in rec).toBe(false)
+})
+
+test('a configuration folder the legal check refuses is left out of the record', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_CODE_SESSION_ID: PARENT, CLAUDE_CONFIG_DIR: '/alt/.claude-other' }, legalCheck: guardSays(['/alt']) })
+  await start($)
+  const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
+  expect(rec.parent).toBe(PARENT)
+  expect('configDir' in rec).toBe(false)
+})
+
+test('a started session without CLAUDE_CONFIG_DIR writes no configuration folder', async ($, on) => {
+  const w = world(on, { env: { CLAUDE_CODE_SESSION_ID: PARENT } })
+  await start($)
+  const rec = JSON.parse(w.files.get(`${DIR}/${SID}.json`)!)
+  expect('configDir' in rec).toBe(false)
 })
 
 test('a session from a clean-environment launcher names its parent through BRAIN_DRAIN_PARENT', async ($, on) => {
@@ -138,7 +216,7 @@ async function rowsForChild($: any, on: any, childRoot: string, extra: Parameter
       [transcript()]: `${USER}\n`,
       [`${DIR}/${CHILD}.json`]: JSON.stringify({ v: 1, parent: SID, session: CHILD, pid: 777, startedAt: 0, root: childRoot, cwd: childRoot, interactive: false }),
       [`${HOME}/.claude/projects/${childRoot.replace(/[^A-Za-z0-9]/g, '-')}/${CHILD}.jsonl`]: `${USER}\n${asst('m1', 30000, 500)}\n`,
-      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'modtest', nameSource: 'user' }),
+      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'helper-run', nameSource: 'user' }),
     },
   })
   on('ui.render', ($2: any, e: any) => { const { Text } = $2.ui.resolve(e); return <Text key="engine">engine hint</Text> })
@@ -154,28 +232,28 @@ async function rowsForChild($: any, on: any, childRoot: string, extra: Parameter
 
 test('the reader shows a child the legal check clears', async ($, on) => {
   const rows = await rowsForChild($, on, '/work/other', { legalCheck: guardSays([]) })
-  expect(rows.some(r => r.includes('modtest'))).toBe(true)
+  expect(rows.some(r => r.includes('helper-run'))).toBe(true)
 })
 
 test('the reader shows no child from a folder the legal check calls legal', async ($, on) => {
   const rows = await rowsForChild($, on, '/cc/Protected_Project', { legalCheck: guardSays(['/cc/Protected_Project']) })
-  expect(rows.some(r => r.includes('modtest') || r.includes('running'))).toBe(false)
+  expect(rows.some(r => r.includes('helper-run') || r.includes('running'))).toBe(false)
 })
 
 test('the reader shows no child when the legal check cannot answer', async ($, on) => {
   const rows = await rowsForChild($, on, '/work/other', { legalCheck: () => 'throw' })
-  expect(rows.some(r => r.includes('modtest') || r.includes('running'))).toBe(false)
+  expect(rows.some(r => r.includes('helper-run') || r.includes('running'))).toBe(false)
 })
 
 test('the reader shows no child from under a .legal marker, with no check placed', async ($, on) => {
   const rows = await rowsForChild($, on, '/work/case/sub', { files: { '/work/case/.legal': '' } })
-  expect(rows.some(r => r.includes('modtest') || r.includes('running'))).toBe(false)
+  expect(rows.some(r => r.includes('helper-run') || r.includes('running'))).toBe(false)
 })
 
 test('the reader shows no child from a mounted volume, and never asks the check about it', async ($, on) => {
   let asked = false
   const rows = await rowsForChild($, on, '/Volumes/Disk/proj', { legalCheck: d => { asked = true; return guardSays([])(d) } })
-  expect(rows.some(r => r.includes('modtest') || r.includes('running'))).toBe(false)
+  expect(rows.some(r => r.includes('helper-run') || r.includes('running'))).toBe(false)
   expect(asked).toBe(false)
 })
 
@@ -189,7 +267,7 @@ test('the parent shows its child with its name and run time; done once its proce
       [`${DIR}/${CHILD}.json`]: JSON.stringify({ v: 1, parent: SID, session: CHILD, pid: 777, startedAt: 0, root: childRoot, cwd: childRoot, interactive: false }),
       [`${DIR}/someone-elses-0000-0000-0000.json`]: JSON.stringify({ v: 1, parent: PARENT, session: 'x0000000-0000', startedAt: 0, root: '/w', cwd: '/w', interactive: false }),
       [childTranscript]: `${USER}\n${asst('m1', 30000, 500)}\n`,
-      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'modtest', nameSource: 'user' }),
+      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'helper-run', nameSource: 'user' }),
     },
   })
   // The record was written at the clock's start; the session has run two minutes since.
@@ -203,7 +281,7 @@ test('the parent shows its child with its name and run time; done once its proce
   let ui = await $.ui.mount(HINT as never)
   let rows = await ourRows(ui as never)
   expect(rows).toHaveLength(3)
-  expect(rows[1]).toBe('  modtest holds 31k  wrote 500  haiku·low  running 2m')
+  expect(rows[1]).toBe('  helper-run holds 31k  wrote 500  haiku·low  running 2m')
   expect(rows[2]).toContain('1 running ·')
   await ui.unmount()
 
@@ -213,7 +291,41 @@ test('the parent shows its child with its name and run time; done once its proce
   await settle()
   ui = await $.ui.mount(HINT as never)
   rows = await ourRows(ui as never)
-  expect(rows[1]).toBe('  modtest held  31k  wrote 500  haiku·low  done 2m')
+  expect(rows[1]).toBe('  helper-run held  31k  wrote 500  haiku·low  done 2m')
+  await ui.unmount()
+})
+
+test('a child under another configuration folder reads running while its process record is there, done once it goes (MC-8313)', async ($, on) => {
+  const childRoot = '/work/other'
+  const ALT = '/alt/.claude-other'
+  const w = world(on, {
+    context: { tokens: 1000, window: 1000000, percent: 1 },
+    files: {
+      [transcript()]: `${USER}\n`,
+      [`${DIR}/${CHILD}.json`]: JSON.stringify({ v: 1, parent: SID, session: CHILD, pid: 777, startedAt: 0, root: childRoot, cwd: childRoot, interactive: false, configDir: ALT }),
+      [`${HOME}/.claude/projects/-work-other/${CHILD}.jsonl`]: `${USER}\n${asst('m1', 30000, 500)}\n`,
+      // Only under the child's own configuration folder (where Claude Code's code suggests it is kept); none under the home folder.
+      [`${ALT}/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'other-config', nameSource: 'user' }),
+    },
+  })
+  const t0 = w.clock.now()
+  w.files.set(`${DIR}/${CHILD}.json`, w.files.get(`${DIR}/${CHILD}.json`)!.replace('"startedAt":0', `"startedAt":${t0}`))
+  on('ui.render', ($2: any, e: any) => { const { Text } = $2.ui.resolve(e); return <Text key="engine">engine hint</Text> })
+  await start($)
+  await $.command.run(cmd('agents on'))
+  await w.clock.advance(120_000)
+  await settle()
+  let ui = await $.ui.mount(HINT as never)
+  let rows = await ourRows(ui as never)
+  expect(rows[1]).toBe('  other-config holds 31k  wrote 500  haiku·low  running 2m')
+  await ui.unmount()
+
+  w.files.delete(`${ALT}/sessions/777.json`)
+  await w.clock.advance(5000)
+  await settle()
+  ui = await $.ui.mount(HINT as never)
+  rows = await ourRows(ui as never)
+  expect(rows[1]).toBe('  other-config held  31k  wrote 500  haiku·low  done 2m')
   await ui.unmount()
 })
 
@@ -226,7 +338,7 @@ test('a running child shows from its start, its figures a dash until its first r
       [transcript()]: `${USER}\n`,
       [`${DIR}/${CHILD}.json`]: JSON.stringify({ v: 1, parent: SID, session: CHILD, pid: 777, startedAt: 0, root: childRoot, cwd: childRoot, interactive: false }),
       [childTranscript]: `${USER}\n`,
-      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'modtest', nameSource: 'user' }),
+      [`${HOME}/.claude/sessions/777.json`]: JSON.stringify({ pid: 777, sessionId: CHILD, name: 'helper-run', nameSource: 'user' }),
     },
   })
   const t0 = w.clock.now()
@@ -238,7 +350,7 @@ test('a running child shows from its start, its figures a dash until its first r
   await settle()
   let ui = await $.ui.mount(HINT as never)
   let rows = await ourRows(ui as never)
-  expect(rows[1]).toBe('  modtest holds –  wrote –  running 2m')
+  expect(rows[1]).toBe('  helper-run holds –  wrote –  running 2m')
   expect(rows[2]).toContain('1 running ·')
   // Nothing is known yet, so the total line says so instead of summing zeros (review of 6 November).
   expect(rows[2]).toContain('· – tokens processed')
@@ -252,7 +364,7 @@ test('a running child shows from its start, its figures a dash until its first r
   await settle()
   ui = await $.ui.mount(HINT as never)
   rows = await ourRows(ui as never)
-  expect(rows[1]).toBe('  modtest holds 31k  wrote 500  haiku·low  running 2m')
+  expect(rows[1]).toBe('  helper-run holds 31k  wrote 500  haiku·low  running 2m')
   await ui.unmount()
 })
 

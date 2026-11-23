@@ -3,6 +3,25 @@
 What changed in each version of Brain Drain for Claude Code, the mod. Update with
 `claude plugin update brain-drain@brain-drain`, then `/reload-plugins`.
 
+## 0.4.1 — 2026-11-23
+
+- **A started session under another configuration folder no longer reads done while it runs.**
+  The parent looked for a started session's own record only under `~/.claude`. A started session
+  now names its configuration folder (`CLAUDE_CONFIG_DIR`, when set) in its record in
+  `~/.claude/fuel-gauge/children/`, and the parent looks in that folder first. A configuration
+  folder whose path lies under `/Volumes` (macOS), under a folder holding a `.legal` marker, or
+  not cleared by your legal check is left out of the record, so the parent never opens it.
+- **A folder under `/Volumes` is recognised in more spellings.** The check that keeps Brain Drain
+  away from mounted drives now also catches the path written in other letter case, with doubled
+  slashes, with `.` parts, or by macOS's long name `/System/Volumes/Data/Volumes`, and a path that
+  passes through `/Volumes` on its way (`/Volumes/D/../../work`) counts as well. It reads the path's
+  letters only and does not follow a link to see where it leads.
+- **A Claude Code that cannot say where a session draws no longer stops the agent rows.** Where
+  the call that lists a session's surfaces fails, the mod asks the older call for one surface, and
+  failing that takes an interactive session to draw in its terminal and a `claude -p` run to draw
+  nowhere. A terminal session keeps its agent rows and its file; a `-p` run still writes nothing
+  to the folders the gauges read.
+
 ## 0.4.0 — 2026-11-21
 
 - **A `claude -p` run writes its session file too, in a folder of its own.** Before, a

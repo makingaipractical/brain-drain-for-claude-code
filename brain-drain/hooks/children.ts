@@ -40,6 +40,50 @@ export type ChildRecord = {
   root: string
   cwd: string
   interactive: boolean
+  /**
+   * The child's CLAUDE_CONFIG_DIR, when it had one. Claude Code's record of a
+   * running process (`sessions/<pid>.json`) may sit under that folder (read from
+   * Claude Code's code, not seen in a run), so the parent looks there first.
+   */
+  configDir?: string
+}
+
+/**
+ * A path written plainly: repeated slashes made one, `.` parts and a trailing
+ * slash dropped, and each `..` taking off the part before it (by the letters
+ * only; no link is followed).
+ */
+export function plainPath(p: string): string {
+  const out: string[] = []
+  for (const s of p.split('/')) {
+    if (s === '' || s === '.') continue
+    if (s === '..') out.pop()
+    else out.push(s)
+  }
+  return `/${out.join('/')}`
+}
+
+/** A configuration folder as a record may name it: an absolute path, no `..`, no control character. */
+export function safeConfigDir(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined
+  const t = v.trim()
+  if (!t.startsWith('/') || /[\u0000-\u001f\u007f]/.test(t) || t.split('/').includes('..')) return undefined
+  const d = plainPath(t)
+  return d === '/' ? undefined : d
+}
+
+/**
+ * Where Claude Code's record of the child's process may be: under the child's
+ * configuration folder first, when the record names one, then under the home
+ * folder's `.claude`. The record found must still name the child's session.
+ * A configuration folder whose path lies under /Volumes is never opened, as no
+ * folder there is listed for the legal rule. Only the path is checked: a link
+ * elsewhere that leads onto a drive is not followed to find out.
+ */
+export function processRecordPaths(home: string, rec: Pick<ChildRecord, 'configDir'>, pid: number): string[] {
+  const own = rec.configDir && !onVolume(rec.configDir) ? rec.configDir : undefined
+  const dirs = [own, `${home}/.claude`].filter((d): d is string => !!d)
+  return [...new Set(dirs)].map(d => `${d}/sessions/${pid}.json`)
 }
 
 /** A record read from disk, or undefined when it is not one. */
@@ -52,6 +96,7 @@ export function parseRecord(v: unknown): ChildRecord | undefined {
     v: 1, parent: r.parent, session: r.session, startedAt: r.startedAt, root: r.root, cwd: r.cwd,
     interactive: r.interactive === true,
     ...(typeof r.pid === 'number' && Number.isInteger(r.pid) && r.pid > 1 ? { pid: r.pid } : {}),
+    ...(safeConfigDir(r.configDir) ? { configDir: safeConfigDir(r.configDir) } : {}),
   }
 }
 
@@ -76,7 +121,20 @@ export function safeId(id: string): boolean {
  * `LEGAL_CHECK`.
  */
 export function onVolume(dir: string): boolean {
-  return dir === '/Volumes' || dir.startsWith('/Volumes/')
+  // The Mac's own disk ignores letter case, so /volumes is the same folder, and
+  // macOS also reaches it by its long name under /System/Volumes/Data. Every
+  // point the path passes through counts, not only where it ends: the folders
+  // above a path are listed by their letters, so `/Volumes/D/../../work` would
+  // list `/Volumes/D` on the way.
+  const mount = /^(\/system\/volumes\/data)?\/volumes(\/|$)/i
+  const out: string[] = []
+  for (const s of dir.split('/')) {
+    if (s === '' || s === '.') continue
+    if (s === '..') out.pop()
+    else out.push(s)
+    if (mount.test(`/${out.join('/')}`)) return true
+  }
+  return false
 }
 
 /** The folders from `dir` up to the root, the home folder and above left out: where a `.legal` marker could sit. */

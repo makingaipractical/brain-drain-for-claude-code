@@ -6,7 +6,8 @@
 import { expect, test } from 'claude-code/testing'
 import type { Engine } from 'claude-code/testing'
 import type { On } from 'claude-code'
-import { settle, start, world } from './world.ts'
+import * as core from '../hooks/core.ts'
+import { HOME, sessionFile, settle, start, world } from './world.ts'
 import type { World, WorldOptions } from './world.ts'
 
 const STEP_USAGE = { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 300000, cache_creation_input_tokens: 12000, model: 'claude-opus-5-5' }
@@ -106,4 +107,40 @@ test('a -p run started inside a panel session pins nothing', async ($, on) => {
   await step($)
   await tick(w)
   expect(w.status.filter(Boolean)).toEqual([])
+})
+
+test('a -p run inside a panel session, on a Claude Code without surfaces(), pins nothing and writes no file', async ($, on) => {
+  const w = host(on, { env: { CLAUDE_CODE_ENTRYPOINT: 'claude-vscode' }, surfacesMissing: true })
+  await start($, false)
+  await step($)
+  await tick(w)
+  expect(w.status.filter(Boolean)).toEqual([])
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toBeUndefined()
+})
+
+test('a terminal session on a Claude Code without surfaces() still writes its file', async ($, on) => {
+  const w = host(on, { surfacesMissing: true })
+  await start($)
+  await step($)
+  await tick(w)
+  expect(sessionFile(w, `${HOME}/.claude/fuel-gauge`)).toMatchObject({ writer: 'mod' })
+})
+
+// MC-8315 item 6: where a session draws, on a Claude Code with and without surfaces().
+// A method a version lacks fails as a call: `$.session.surfaces is not a function`.
+const missing = () => Promise.reject(new TypeError('not a function'))
+
+test('surfaces() is used where it exists, whatever the session is', async () => {
+  expect(await core.surfacesOf(async () => ['terminal', 'vscode'], async () => 'desktop', false)).toEqual(['terminal', 'vscode'])
+  expect(await core.surfacesOf(async () => [], async () => 'terminal', true)).toEqual([])
+})
+
+test('without surfaces(), the deprecated surface() answers; null is nothing', async () => {
+  expect(await core.surfacesOf(missing, async () => 'vscode', false)).toEqual(['vscode'])
+  expect(await core.surfacesOf(missing, async () => null, true)).toEqual([])
+})
+
+test('without either, an interactive session draws in the terminal and anything else nowhere', async () => {
+  expect(await core.surfacesOf(missing, missing, true)).toEqual(['terminal'])
+  expect(await core.surfacesOf(missing, missing, false)).toEqual([])
 })

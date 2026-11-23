@@ -3,6 +3,10 @@ import type { TurnStepResult } from 'claude-code'
 import * as core from '../hooks/core.ts'
 import { start, world, settle } from './world.ts'
 
+// These push the clock through many simulated minutes, a second of tick at a time: about 1 to 3 s
+// alone, and past the kit's 5 s default when the machine is busy (MC-8315).
+const SLOW = { timeoutMs: 20_000 }
+
 const cold = { cache_read_input_tokens: 9000, cache_creation_input_tokens: 150000 }
 const warm = { cache_read_input_tokens: 149000, cache_creation_input_tokens: 5000 }
 
@@ -40,7 +44,7 @@ function stepper($: any, on: any) {
   }
 }
 
-test('turn.step records a miss after an idle gap, never on the first request', async ($, on) => {
+test('turn.step records a miss after an idle gap, never on the first request', SLOW, async ($, on) => {
   const w = world(on, { files: { '/h/.claude/fuel-gauge/account_ttl.json': '{"detected_ttl":300,"detected_at":1}' } })
   const step = stepper($, on)
   await start($)

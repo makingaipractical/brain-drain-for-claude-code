@@ -59,6 +59,8 @@ export type WorldOptions = {
    * answering for the folders it is given; `throw` makes the run itself fail.
    */
   legalCheck?: (dirs: string[]) => { exitCode: number; stdout: string } | 'throw'
+  /** `$.session.surfaces()` fails, as on a Claude Code that lacks it (MC-8315 item 6). */
+  surfacesMissing?: boolean
 }
 
 export function world(on: On, o: WorldOptions = {}): World {
@@ -174,7 +176,7 @@ export function world(on: On, o: WorldOptions = {}): World {
     return { value: { exitCode: 127, stdout: '', stderr: 'unknown', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('session.id', () => ({ value: w.sid }))
-  on('session.surfaces', () => ({ value: w.surfaces as never }))
+  on('session.surfaces', () => (o.surfacesMissing ? { deny: 'not in this Claude Code' } : { value: w.surfaces as never }))
   on('session.cwd', () => ({ value: ROOT }))
   on('session.root', () => ({ value: ROOT }))
   on('session.usage', () => ({

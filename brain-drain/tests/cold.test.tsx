@@ -2,6 +2,10 @@ import { expect, test } from 'claude-code/testing'
 import type { TurnStepResult } from 'claude-code'
 import { start, world } from './world.ts'
 
+// These push the clock through many simulated minutes, a second of tick at a time: about 1 to 3 s
+// alone, and past the kit's 5 s default when the machine is busy (MC-8315).
+const SLOW = { timeoutMs: 20_000 }
+
 const BAND = (cols = 120) => ({
   plugin: 'brain-drain', component: 'AbovePrompt' as const,
   props: { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: cols, scroll: { bodyRows: 9 } as never, view: {} as never },
@@ -34,7 +38,7 @@ async function rows(ui: { findAll: (q: { type: string }) => Promise<{ text: stri
 
 const edit = (text: string, inputText: string) => ({ origin: { kind: 'composer' as const }, text, cursor: text.length, start: text.length, end: text.length, inputText })
 
-test('the band draws the gauge, keeps other mods, and warns only while typing into an expired cache', async ($, on) => {
+test('the band draws the gauge, keeps other mods, and warns only while typing into an expired cache', SLOW, async ($, on) => {
   const w = await setup($, on)
   await $.command.run({ command: 'drain', args: 'place above', origin: { kind: 'composer' } as never, presentation: {} as never })
   for (const surface of ['terminal', 'desktop'] as const) {
